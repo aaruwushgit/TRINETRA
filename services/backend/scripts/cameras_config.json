@@ -1,0 +1,29 @@
+[
+  {
+    "camera_id": "CAM_001",
+    "name": "Anna Nagar Junction",
+    "source": "../traffic-detection-yolo/demo_video/demo.mp4",
+    "latitude": 13.0827,
+    "longitude": 80.2099,
+    "direction": "NORTH",
+    "frame_skip": 2
+  },
+  {
+    "camera_id": "CAM_002",
+    "name": "Nungambakkam High Road",
+    "source": "../traffic-detection-yolo/demo_video/demo.mp4",
+    "latitude": 13.0569,
+    "longitude": 80.2425,
+    "direction": "EAST",
+    "frame_skip": 2
+  },
+  {
+    "camera_id": "CAM_003",
+    "name": "T Nagar Usman Road",
+    "source": "../traffic-detection-yolo/demo_video/demo.mp4",
+    "latitude": 13.0418,
+    "longitude": 80.2341,
+    "direction": "SOUTH",
+    "frame_skip": 2
+  }
+]

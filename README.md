@@ -21,11 +21,12 @@ congestion analytics, and raises real-time enforcement alerts.
 - [Repository structure](#repository-structure)
 - [Tech stack](#tech-stack)
 - [Getting started](#getting-started)
-- [Running the backend](#running-the-backend)
+- [Running everything with one command](#running-everything-with-one-command)
 - [Services in detail](#services-in-detail)
 - [Data model](#data-model)
 - [Documentation](#documentation)
 - [Local data (not tracked in git)](#local-data-not-tracked-in-git)
+- [Credits & third-party code](#credits--third-party-code)
 - [Roadmap / status](#roadmap--status)
 
 ---
@@ -73,22 +74,27 @@ serves it all through a FastAPI + vanilla-JS/Leaflet dashboard.
 ```
 SIH/
 ├── services/
-│   ├── alpr/                     ANPR pipeline — YOLOv8 plate detection + PaddleOCR   [submodule]
-│   ├── vehicle-mtmc/             Multi-camera vehicle re-identification & tracking    [submodule]
-│   ├── traffic-detection-yolo/   General YOLO-based traffic/vehicle detection         [submodule]
-│   └── backend/                  FastAPI backend — ingestion, trajectories,           [submodule]
+│   ├── alpr/                     ANPR pipeline — YOLOv8 plate detection + PaddleOCR
+│   ├── vehicle-mtmc/             Multi-camera vehicle re-identification & tracking
+│   ├── traffic-detection-yolo/   General YOLO-based traffic/vehicle detection
+│   └── backend/                  FastAPI backend — ingestion, trajectories,
 │                                  prediction, analytics, alerts, dashboard/frontend
 ├── docs/                         Architecture notes, problem statement, workflow, integration guides
-├── docker-compose.yml             One command to run the whole stack (see below)
+├── docker-compose.yml            One command to run the whole stack (see below)
 ├── .dockerignore
-├── .gitmodules                   Submodule → remote URL mapping
 ├── .gitignore
 └── README.md                     You are here
 ```
 
-Each directory under `services/` is an independently maintained git
-repository, wired into this monorepo as a **git submodule** — it keeps its
-own commit history, its own `README.md`, and its own dependencies.
+Everything under `services/` is vendored directly into this repository —
+there are no git submodules and no external checkouts required. `alpr`,
+`vehicle-mtmc`, and `traffic-detection-yolo` originate from third-party
+open-source projects (see [Credits & third-party
+code](#credits--third-party-code)); `backend` is this project's own code,
+written specifically to connect them into one pipeline. Vendoring them
+in-tree keeps `git clone` + `docker compose up` sufficient to deploy the
+whole platform, with no submodule init step and no dependency on those
+upstream repos staying available.
 
 ---
 
@@ -111,22 +117,15 @@ own commit history, its own `README.md`, and its own dependencies.
 
 ## Getting started
 
-### Clone with all submodules
+### Clone
 
 ```bash
-git clone --recurse-submodules <this-repo-url>
+git clone <this-repo-url>
+cd TRINETRA
 ```
 
-If you already cloned without `--recurse-submodules`:
-
-```bash
-git submodule update --init --recursive
-```
-
-> **Note:** `services/backend` currently has no external GitHub remote
-> configured — `.gitmodules` points at a local path until it's pushed. See
-> [Pushing `services/backend` to GitHub](#pushing-servicesbackend-to-github)
-> below.
+That's it — no submodule init step. Everything the app needs is already in
+the tree.
 
 ### Prerequisites
 
@@ -279,25 +278,25 @@ relevant service's README as needed:
 
 ---
 
-## Pushing `services/backend` to GitHub
+## Credits & third-party code
 
-`services/backend` doesn't have a real GitHub remote yet. To give it one:
+`services/backend` is original code written for this project. The other
+three services under `services/` are vendored copies of third-party
+open-source projects, included directly in this repository (rather than as
+git submodules) so the whole platform clones and deploys as one self-contained
+unit. All credit for the original work in these directories goes to their
+authors:
 
-```bash
-cd services/backend
-gh repo create <your-username>/vehicle-intelligence-backend --private --source=. --remote=origin
-git push -u origin main
-```
+| Directory | Original project | Author | License |
+|---|---|---|---|
+| [`services/alpr`](services/alpr) | [Automatic-License-Plate-Recognition](https://github.com/fayazhussain2821/Automatic-License-Plate-Recognition) | Fayaz Hussain Syed | [MIT](services/alpr/LICENSE) |
+| [`services/vehicle-mtmc`](services/vehicle-mtmc) | [vehicle_mtmc](https://github.com/regob/vehicle_mtmc) | Regő Borsodi | [MIT](services/vehicle-mtmc/LICENSE.md) |
+| [`services/traffic-detection-yolo`](services/traffic-detection-yolo) | [traffic-detection-yolo](https://github.com/abrarCSE29/traffic-detection-yolo) | abrarCSE29 | See upstream repo |
 
-Then point the parent repo's submodule at the real URL:
-
-```bash
-cd ../..   # back to repo root
-# edit .gitmodules: services/backend url -> the new GitHub URL
-git add .gitmodules
-git commit -m "point services/backend submodule at its GitHub remote"
-git push
-```
+Each directory retains its own original `README.md`/license file — see them
+for the full license text and any additional attribution the original
+authors require. If you redistribute this repository, keep those license
+files intact alongside the code they cover.
 
 ---
 

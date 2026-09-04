@@ -1,0 +1,49 @@
+{
+  "created": "2026-08-31T07:58:19.884544+00:00",
+  "base_weights": "/Users/aarushsharma/Documents/SIH/Automatic-License-Plate-Recognition/best.pt",
+  "tuned_weights": "/Users/aarushsharma/Documents/SIH/vehicle-intelligence-backend/training/fast_motion/runs/fast_motion/weights/best.pt",
+  "dataset": "/Users/aarushsharma/Documents/SIH/vehicle-intelligence-backend/training/fast_motion/dataset/data.yaml",
+  "self_labelled": true,
+  "pseudo_label_confidence": 0.6,
+  "blur_kernels_px": [
+    0,
+    5,
+    9,
+    13,
+    17,
+    21
+  ],
+  "blur_angles_deg": [
+    0,
+    8,
+    -8,
+    15,
+    -15,
+    90
+  ],
+  "hyperparameters": {
+    "epochs": 30,
+    "batch": 8,
+    "imgsz": 640,
+    "lr0": 0.0008,
+    "freeze": 10,
+    "device": "mps",
+    "seed": 0
+  },
+  "metrics": {
+    "before": {
+      "map50": 0.957,
+      "map50_95": 0.8273,
+      "precision": 0.9162,
+      "recall": 0.9106
+    },
+    "after": {
+      "map50": 0.9878,
+      "map50_95": 0.7753,
+      "precision": 0.9633,
+      "recall": 0.9497
+    }
+  },
+  "git_sha": "4f998ea",
+  "ultralytics": "8.4.134"
+}

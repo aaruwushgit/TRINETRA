@@ -1,0 +1,32 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.2
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  # Notebook outputs are megabytes of base64 that make every diff unreadable
+  # and can leak plate images into git history. Strip them on the way in.
+  - repo: https://github.com/kynan/nbstripout
+    rev: 0.8.1
+    hooks:
+      - id: nbstripout
+
+  # This repo is public, and a pushed secret stays reachable on GitHub long
+  # after the commit is amended away. An API key was very nearly committed
+  # here on 2026-08-09; this hook is the guardrail that would have caught it.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.0
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-yaml
+      - id: check-added-large-files
+        args: [--maxkb=2048]
+      - id: check-merge-conflict

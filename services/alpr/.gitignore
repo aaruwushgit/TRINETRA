@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+build/
+dist/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Datasets and weights live on the HF Hub, never in git.
+data/**
+!data/.gitkeep
+!data/README.md
+*.pt
+*.onnx
+*.mlpackage/
+
+# Hand-labelled plate crops and their transcriptions. Deliberately NOT
+# committed: a plate number is personal data, and while the source images are
+# CC BY, publishing 200 crops beside a list of the real plate numbers creates a
+# searchable register that the originals are not. The aggregate results are in
+# the README; anyone reproducing them can relabel with `alpr label`.
+labels/
+labels.json
+labels.zip
+
+# Run outputs
+outputs/
+runs/
+*.xlsx
+*.xlsx.jsonl
+!tests/fixtures/*.xlsx
+*.xlsx.jsonl
+
+# Local media — clips are large and often contain personal data (GDPR).
+*.mp4
+*.mov
+*.avi
+!tests/fixtures/*.mp4
+
+# OS / editor / env secrets
+.env
+.env.*
+# `.env.example` is the committed template, so it must be tracked — and being
+# tracked is what puts it in front of the gitleaks pre-commit hook. While
+# `.env.*` swallowed it, the one file whose whole job is to be committed was
+# invisible to git and had never been scanned; it accumulated real values as a
+# result. Keep this negation and keep the file placeholders-only.
+!.env.example
+.DS_Store
+.vscode/
+.idea/
+

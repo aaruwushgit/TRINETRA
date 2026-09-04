@@ -1,0 +1,56 @@
+{
+  "generated_at": "2026-08-31T07:02:39.808462+00:00",
+  "watchlist": [
+    {
+      "plate": "MH01AB0007",
+      "reason": "Stolen vehicle \u2014 FIR 214/2026, Bandra PS"
+    },
+    {
+      "plate": "MH02XY1990",
+      "reason": "Suspect vehicle \u2014 traffic bureau lookout notice"
+    },
+    {
+      "plate": "MH43KL4242",
+      "reason": "Unpaid challans exceeding threshold"
+    }
+  ],
+  "habitual_speeders": [
+    "KA13NC7914",
+    "KA32HZ8255",
+    "MH01KQ3315",
+    "MH01T3734",
+    "MH02DY3626",
+    "MH02Q0239",
+    "MH03B9847",
+    "MH03DD5895",
+    "MH03JS3370",
+    "MH03N7321",
+    "MH04A2156",
+    "MH04CJ5958",
+    "MH04DG3079",
+    "MH04N8753",
+    "MH04SV5509",
+    "MH04Y0439",
+    "MH05GU4657",
+    "MH05KU7188",
+    "MH05U2548",
+    "MH06AA7132",
+    "MH06CE8088",
+    "MH06M8890",
+    "MH06T5917",
+    "MH06UH1665",
+    "MH43PG8933",
+    "MH43XV4759",
+    "MH46EE4423",
+    "MH47FV1879",
+    "MH47G2010",
+    "MH47HT2406",
+    "MH47JV3346",
+    "MH47U2460",
+    "MH47YH5330",
+    "MH48E3780",
+    "MH48Q7256",
+    "MH48Z3047"
+  ],
+  "note": "Habitual speeders drive at 1.30-1.70x the congestion-adjusted free-flow speed. Load this dataset, then check GET /vehicles/analytics/speed-defaulters and the blacklist alerts against these lists."
+}

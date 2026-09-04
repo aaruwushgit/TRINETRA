@@ -1,0 +1,2152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ANPR // BENCHMARKS &amp; SCALABILITY [TERMINAL VIEW]</title>
+
+  <!-- Monospace typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700;800&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg: #090a0f;
+      --panel: #0d0f17;
+      --panel-border: #1e2433;
+      --text: #c0caf5;
+      --text-muted: #565f89;
+      --accent-green: #9ece6a;
+      --accent-cyan: #7dcfff;
+      --accent-amber: #e0af68;
+      --accent-red: #f7768e;
+      --accent-purple: #bb9af7;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      line-height: 1.4;
+      overflow-x: hidden;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background-color: #06070a;
+      border-bottom: 1px solid var(--panel-border);
+      padding: 6px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+    }
+
+    .brand-title {
+      font-weight: 800;
+      color: var(--accent-cyan);
+      letter-spacing: -0.5px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .brand-title span.badge {
+      font-size: 10px;
+      padding: 1px 5px;
+      background: #161b26;
+      border: 1px solid var(--panel-border);
+      color: var(--accent-green);
+      font-weight: 500;
+    }
+
+    .tab-group { display: flex; gap: 4px; flex-wrap: wrap; }
+
+    .tab-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-muted);
+      font-family: inherit;
+      font-size: 11px;
+      padding: 4px 10px;
+      cursor: pointer;
+      border-radius: 2px;
+      transition: all 0.1s ease;
+      text-decoration: none;
+      display: inline-block;
+    }
+
+    .tab-btn:hover { color: var(--text); background: #131722; }
+
+    .tab-btn.active {
+      background: #161b26;
+      color: var(--accent-cyan);
+      border-color: var(--panel-border);
+      font-weight: 700;
+    }
+
+    .tab-btn:focus-visible { outline: 1px solid var(--accent-cyan); outline-offset: 1px; }
+
+    main {
+      flex: 1;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-width: 1720px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    .box {
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 3px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .box-header {
+      background: #080a0f;
+      border-bottom: 1px solid var(--panel-border);
+      padding: 5px 10px;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      flex-wrap: wrap;
+    }
+
+    .box-body {
+      padding: 8px;
+      flex: 1;
+      min-height: 0; /* flex children default to min-height:auto, which breaks overflow-y:auto */
+      overflow-y: auto;
+    }
+
+    table.cli-table { width: 100%; border-collapse: collapse; font-size: 11px; text-align: left; }
+    table.cli-table th {
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--panel-border);
+      padding: 6px 6px;
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 10px;
+    }
+    table.cli-table td { padding: 6px; border-bottom: 1px solid #141824; }
+    table.cli-table tr:hover td { background-color: #121622; }
+    table.cli-table td.num, table.cli-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    table.cli-table tr.group td {
+      background: #0a0c13;
+      color: var(--accent-cyan);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .status-pill { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 4px; }
+    .status-pill.online { background-color: var(--accent-green); }
+    .status-pill.offline { background-color: var(--accent-red); }
+
+    .cli-input-group { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+
+    .cli-input {
+      background: #080a0f;
+      border: 1px solid var(--panel-border);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 11px;
+      padding: 5px 8px;
+      border-radius: 2px;
+      outline: none;
+      width: 100%;
+    }
+    .cli-input:focus { border-color: var(--accent-cyan); }
+
+    .cli-btn {
+      background: #161b26;
+      border: 1px solid var(--panel-border);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 11px;
+      padding: 5px 12px;
+      cursor: pointer;
+      border-radius: 2px;
+    }
+    .cli-btn:hover { background: #21293a; color: var(--accent-cyan); }
+    .cli-btn:focus-visible { outline: 1px solid var(--accent-cyan); outline-offset: 1px; }
+    .cli-btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+    .cli-btn[disabled]:hover { background: #161b26; color: var(--text); }
+    .cli-btn.primary { border-color: #2c4a3a; color: var(--accent-green); }
+
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--panel-border); }
+    ::-webkit-scrollbar-thumb:hover { background: #323b52; }
+
+    /* ── provenance badges: the whole point of this page ─────────── */
+    .tag {
+      display: inline-block;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.6px;
+      padding: 1px 5px;
+      border-radius: 2px;
+      border: 1px solid;
+      text-transform: uppercase;
+      white-space: nowrap;
+      vertical-align: middle;
+    }
+    .tag.measured   { color: var(--accent-cyan);   border-color: #24485e; background: #0c1a22; }
+    .tag.projected  { color: var(--accent-amber);  border-color: #5e4824; background: #221a0c; }
+    .tag.derived    { color: var(--accent-green);  border-color: #33501f; background: #101a0c; }
+    .tag.assumption { color: var(--accent-purple); border-color: #443a5e; background: #150f22; }
+    .tag.stale      { color: var(--accent-red);    border-color: #5e2430; background: #220c11; }
+    .tag.unknown    { color: var(--text-muted);    border-color: var(--panel-border); background: #0c0e15; }
+
+    .legend { display: flex; gap: 13px; flex-wrap: wrap; font-size: 10px; color: var(--text-muted); align-items: center; }
+
+    /* KPI tiles */
+    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(162px, 1fr)); gap: 8px; }
+    .kpi {
+      border: 1px solid var(--panel-border);
+      background: #080a0f;
+      padding: 7px 9px;
+      border-radius: 2px;
+      min-width: 0;
+    }
+    .kpi.k-measured   { border-left: 3px solid var(--accent-cyan); }
+    .kpi.k-projected  { border-left: 3px solid var(--accent-amber); }
+    .kpi.k-derived    { border-left: 3px solid var(--accent-green); }
+    .kpi.k-assumption { border-left: 3px solid var(--accent-purple); }
+    .kpi-label {
+      font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.5px;
+      color: var(--text-muted); display: flex; justify-content: space-between; gap: 6px; align-items: center;
+    }
+    .kpi-label span.t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .kpi-value {
+      font-size: 18px; font-weight: 700; margin-top: 3px; color: var(--text);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .kpi-value .u { font-size: 10px; font-weight: 400; color: var(--text-muted); }
+    .kpi-value.cyan { color: var(--accent-cyan); }
+    .kpi-value.amber { color: var(--accent-amber); }
+    .kpi-value.green { color: var(--accent-green); }
+    .kpi-value.purple { color: var(--accent-purple); }
+    .kpi-sub { font-size: 9.5px; color: var(--text-muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .notice {
+      border: 1px solid var(--panel-border);
+      border-left-width: 3px;
+      background: #080a0f;
+      padding: 7px 9px;
+      font-size: 10.5px;
+      line-height: 1.55;
+      margin-bottom: 8px;
+      border-radius: 2px;
+      color: var(--text-muted);
+      word-break: break-word;
+    }
+    .notice strong { color: var(--text); font-weight: 700; }
+    .notice.info { border-left-color: var(--accent-cyan); }
+    .notice.warn { border-left-color: var(--accent-amber); }
+    .notice.err  { border-left-color: var(--accent-red); }
+    .notice.ok   { border-left-color: var(--accent-green); }
+    .notice.assume { border-left-color: var(--accent-purple); }
+    .notice.hidden { display: none; }
+
+    /* stage bars */
+    .stage-row { display: grid; grid-template-columns: 84px 1fr 170px; gap: 8px; align-items: center; margin-bottom: 6px; }
+    .stage-name { font-size: 10px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; }
+    .stage-track { height: 11px; background: #080a0f; border: 1px solid var(--panel-border); border-radius: 2px; overflow: hidden; }
+    .stage-fill { height: 100%; width: 0%; }
+    .stage-fill.detect { background: var(--accent-cyan); }
+    .stage-fill.ocr { background: var(--accent-purple); }
+    .stage-fill.decode { background: var(--accent-green); }
+    .stage-fill.log { background: var(--accent-amber); }
+    .stage-fill.other { background: var(--text-muted); }
+    .stage-val { font-size: 10px; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+    .kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; font-size: 11px; }
+    .kv dt { color: var(--text-muted); white-space: nowrap; }
+    .kv dd { color: var(--text); text-align: right; font-variant-numeric: tabular-nums; word-break: break-word; }
+
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; }
+    .grid-scale { display: grid; grid-template-columns: 296px 1fr; gap: 12px; align-items: start; }
+
+    .field { margin-bottom: 10px; }
+    .field label {
+      font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
+      color: var(--text-muted); margin-bottom: 3px; font-weight: 600;
+      display: flex; justify-content: space-between; gap: 8px;
+    }
+    .field label output { color: var(--accent-cyan); font-weight: 700; }
+    input[type="range"] { width: 100%; accent-color: var(--accent-cyan); background: transparent; }
+    input[type="range"]:focus-visible { outline: 1px solid var(--accent-cyan); outline-offset: 2px; }
+
+    .hint { font-size: 10px; color: var(--text-muted); line-height: 1.5; }
+    .muted { color: var(--text-muted); }
+    .cyan { color: var(--accent-cyan); }
+    .amber { color: var(--accent-amber); }
+    .green { color: var(--accent-green); }
+    .red { color: var(--accent-red); }
+    .purple { color: var(--accent-purple); }
+
+    .sec-title {
+      font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
+      color: var(--text-muted); font-weight: 700; margin: 12px 0 6px;
+      border-top: 1px solid var(--panel-border); padding-top: 8px;
+      display: flex; justify-content: space-between; align-items: center; gap: 8px;
+    }
+    .sec-title:first-child { margin-top: 0; border-top: none; padding-top: 0; }
+
+    .mono-block {
+      background: #06070a; border: 1px solid var(--panel-border); border-radius: 2px;
+      padding: 8px; font-size: 10px; line-height: 1.5; white-space: pre-wrap;
+      overflow-x: auto; color: var(--accent-green); word-break: break-all;
+    }
+
+    .empty-state { padding: 20px 14px; text-align: center; }
+    .empty-state h2 { font-size: 14px; color: var(--accent-amber); font-weight: 700; margin-bottom: 8px; letter-spacing: 0.5px; }
+
+    ul.method { list-style: none; font-size: 10.5px; line-height: 1.65; }
+    ul.method li { padding-left: 14px; position: relative; color: var(--text-muted); margin-bottom: 3px; }
+    ul.method li:before { content: '▸'; position: absolute; left: 0; color: var(--accent-cyan); }
+    ul.method li strong { color: var(--text); }
+    ul.method.pro li:before { content: '+'; color: var(--accent-green); }
+    ul.method.con li:before { content: '−'; color: var(--accent-red); }
+
+    details.raw { margin-top: 8px; }
+    details.raw summary {
+      cursor: pointer; font-size: 10px; color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    details.raw summary:hover { color: var(--accent-cyan); }
+    details.raw pre {
+      margin-top: 6px; background: #06070a; border: 1px solid var(--panel-border);
+      padding: 8px; font-size: 10px; max-height: 300px; overflow: auto; color: var(--text-muted);
+      white-space: pre; border-radius: 2px;
+    }
+
+    .has-note { border-bottom: 1px dotted var(--text-muted); cursor: help; }
+
+    @media (max-width: 1200px) {
+      .grid-2, .grid-scale { grid-template-columns: 1fr; }
+      .stage-row { grid-template-columns: 66px 1fr 140px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- TOP BAR -->
+  <header>
+    <div class="brand-title">
+      <span>sys::anpr-radar</span>
+      <span class="badge" id="bench-indicator">● BENCHMARKS</span>
+    </div>
+
+    <nav class="tab-group" aria-label="Primary">
+      <a class="tab-btn" href="/app">[0] SURVEILLANCE</a>
+      <a class="tab-btn" href="/app/test">[1] SANDBOX</a>
+      <a class="tab-btn active" href="/app/benchmarks" aria-current="page">[2] BENCHMARKS</a>
+    </nav>
+
+    <div class="legend">
+      <span><span class="tag measured">measured</span> stopwatch on this machine</span>
+      <span><span class="tag derived">derived</span> arithmetic on measurements only</span>
+      <span><span class="tag projected">projected</span> measurements + assumptions</span>
+      <span><span class="tag assumption">assumption</span> not measured here</span>
+      <span>API: <span id="bench-api-status" class="muted">checking…</span></span>
+    </div>
+  </header>
+
+  <main>
+
+    <div id="global-notice" class="notice info hidden" style="margin-bottom:0;"></div>
+
+    <!-- EMPTY / MISSING STATE -->
+    <section class="box" id="empty-box" style="display:none;">
+      <div class="box-header"><span>No Benchmark Results</span><span class="tag stale">missing</span></div>
+      <div class="box-body">
+        <div class="empty-state">
+          <h2 id="empty-title">NO MEASURED RESULTS ON THIS HOST</h2>
+          <div class="hint" id="empty-detail" style="max-width:800px; margin:0 auto 12px;"></div>
+          <div class="mono-block" style="max-width:800px; margin:0 auto; text-align:left;">cd /Users/aarushsharma/Documents/SIH/vehicle-intelligence-backend
+.venv/bin/python scripts/run_benchmarks.py --suite all</div>
+          <div class="hint" style="margin-top:10px; max-width:800px; margin-left:auto; margin-right:auto;">
+            A full run takes roughly a minute. Nothing on this page is invented — until the suite runs,
+            measured figures stay blank rather than showing a plausible-looking guess.
+          </div>
+          <div class="cli-input-group" style="justify-content:center; margin-top:12px;">
+            <button class="cli-btn primary" onclick="runBenchmarks()">▶ RUN NOW VIA API</button>
+            <button class="cli-btn" onclick="loadAll()">⟳ RELOAD</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SUITE ERRORS -->
+    <section class="box" id="errors-box" style="display:none;">
+      <div class="box-header"><span>Suites That Did Not Produce Numbers</span><span class="tag stale">incomplete</span></div>
+      <div class="box-body">
+        <div class="notice warn" style="margin-bottom:8px;">
+          <strong>A suite failed, so its figures are absent rather than estimated.</strong> Anything that
+          depended on it is blank below. This panel exists so a gap is never mistaken for a zero.
+        </div>
+        <div id="errors-list"></div>
+      </div>
+    </section>
+
+    <!-- KPI ROW -->
+    <section class="box" id="kpi-box">
+      <div class="box-header">
+        <span>Headline Numbers</span>
+        <span style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <span class="hint" id="machine-label">—</span>
+          <span class="hint">measured <span id="measured-at">—</span></span>
+          <span id="stale-tag"></span>
+        </span>
+      </div>
+      <div class="box-body">
+        <div class="kpi-grid" id="kpi-grid">
+          <div class="kpi k-measured">
+            <div class="kpi-label"><span class="t">Device</span><span class="tag measured">m</span></div>
+            <div class="kpi-value cyan" id="kpi-device">—</div>
+            <div class="kpi-sub" id="kpi-device-sub">—</div>
+          </div>
+          <div class="kpi k-measured">
+            <div class="kpi-label"><span class="t">Detection / frame</span><span class="tag measured">m</span></div>
+            <div class="kpi-value" id="kpi-detect">—</div>
+            <div class="kpi-sub" id="kpi-detect-sub">p50 · p95</div>
+          </div>
+          <div class="kpi k-measured">
+            <div class="kpi-label"><span class="t">OCR / plate-crop</span><span class="tag measured">m</span></div>
+            <div class="kpi-value purple" id="kpi-ocr">—</div>
+            <div class="kpi-sub" id="kpi-ocr-sub">p50 · p95</div>
+          </div>
+          <div class="kpi k-derived">
+            <div class="kpi-label"><span class="t">Pipeline FPS (1 stream)</span><span class="tag derived">d</span></div>
+            <div class="kpi-value green" id="kpi-fps">—</div>
+            <div class="kpi-sub" id="kpi-fps-sub">—</div>
+          </div>
+          <div class="kpi k-measured">
+            <div class="kpi-label"><span class="t">Ingest throughput</span><span class="tag measured">m</span></div>
+            <div class="kpi-value amber" id="kpi-ingest">—</div>
+            <div class="kpi-sub" id="kpi-ingest-sub">—</div>
+          </div>
+          <div class="kpi k-measured">
+            <div class="kpi-label"><span class="t">Storage / event</span><span class="tag measured">m</span></div>
+            <div class="kpi-value" id="kpi-bytes">—</div>
+            <div class="kpi-sub">real sqlite file size ÷ rows</div>
+          </div>
+        </div>
+        <div id="kpi-notice" class="notice info hidden" style="margin-top:8px; margin-bottom:0;"></div>
+      </div>
+    </section>
+
+    <div class="grid-2">
+      <!-- PER-STAGE COST -->
+      <section class="box">
+        <div class="box-header"><span>Per-stage Cost, One Frame</span><span class="tag measured">measured</span></div>
+        <div class="box-body">
+          <div id="stage-notice" class="notice info hidden"></div>
+          <div id="stage-bars"><div class="hint">No per-stage timings loaded.</div></div>
+          <div id="stage-notes" style="margin-top:8px;"></div>
+          <div class="hint" style="margin-top:8px;">
+            Detection runs on every analysed frame; OCR only on frames where <code>ocr_every</code> allows it,
+            and only on detected crops. That asymmetry is why <code>ocr_every</code> is the cheapest knob in
+            the system — it cuts the most expensive stage without touching detection recall.
+          </div>
+        </div>
+      </section>
+
+      <!-- HARDWARE PROFILE -->
+      <section class="box">
+        <div class="box-header"><span>Hardware / Runtime Profile</span><span class="tag measured">measured</span></div>
+        <div class="box-body">
+          <div id="hw-notice" class="notice info hidden"></div>
+          <dl class="kv" id="hw-kv"><dt>loading…</dt><dd>—</dd></dl>
+          <div id="accel-note" class="notice assume hidden" style="margin-top:8px; margin-bottom:0;"></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- UPSTREAM CROSS-CHECK -->
+    <section class="box" id="crosscheck-box" style="display:none;">
+      <div class="box-header"><span>Cross-check Against the Upstream Model's Published Numbers</span><span class="tag measured">measured</span></div>
+      <div class="box-body">
+        <table class="cli-table">
+          <thead><tr><th>METRIC</th><th class="num">OURS</th><th class="num">REFERENCE</th><th class="num">RATIO</th><th>ASSESSMENT</th></tr></thead>
+          <tbody id="crosscheck-body"></tbody>
+        </table>
+        <div class="hint" style="margin-top:8px;" id="crosscheck-note"></div>
+      </div>
+    </section>
+
+    <!-- INTERACTIVE SCALING -->
+    <section class="box">
+      <div class="box-header">
+        <span>Interactive Scaling — City-wide Requirements</span>
+        <span>
+          <span class="tag projected">projected</span>
+          <span class="hint" style="margin-left:8px;">GET /benchmarks/projection</span>
+        </span>
+      </div>
+      <div class="box-body">
+        <div class="notice warn">
+          <strong>Everything in this panel is projected, not measured.</strong> It is arithmetic over the
+          handful of stopwatch readings above, plus the assumptions listed at the bottom of the panel. Each
+          figure carries its own badge; hover any value to see the exact method and caveat the API reported
+          for it. No models are loaded and no database is touched when you drag a slider.
+        </div>
+
+        <div class="grid-scale">
+          <!-- controls -->
+          <div>
+            <div class="field">
+              <label for="in-cameras"><span>Cameras</span><output id="out-cameras">500</output></label>
+              <input type="range" id="in-cameras" min="1" max="2000" step="1" value="500"
+                     aria-describedby="hint-cameras" />
+              <input type="number" class="cli-input" id="in-cameras-num" min="1" max="2000" step="1" value="500"
+                     style="margin-top:5px;" aria-label="Cameras, exact value" />
+              <div class="hint" id="hint-cameras">Simultaneous analysed streams across the city.</div>
+            </div>
+
+            <div class="field">
+              <label for="in-fps"><span>FPS analysed / camera</span><output id="out-fps">6</output></label>
+              <input type="range" id="in-fps" min="1" max="30" step="1" value="6" aria-describedby="hint-fps" />
+              <div class="hint" id="hint-fps">
+                Not the camera's capture rate — the rate detection actually runs at.
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="in-ocr"><span>ocr_every (frames)</span><output id="out-ocr">3</output></label>
+              <input type="range" id="in-ocr" min="1" max="15" step="1" value="3" aria-describedby="hint-ocr" />
+              <div class="hint" id="hint-ocr">OCR one plate-bearing frame in N. Higher = cheaper, fewer reads to vote across.</div>
+            </div>
+
+            <div class="field">
+              <label for="in-latency"><span>Target latency (s)</span><output id="out-latency">2.0</output></label>
+              <input type="range" id="in-latency" min="0.5" max="10" step="0.5" value="2" aria-describedby="hint-latency" />
+              <div class="hint" id="hint-latency">Sighting-to-queryable budget.</div>
+            </div>
+
+            <div class="field">
+              <label for="in-headroom"><span>Utilisation headroom</span><output id="out-headroom">0.70</output></label>
+              <input type="range" id="in-headroom" min="0.3" max="1" step="0.05" value="0.7" aria-describedby="hint-headroom" />
+              <div class="hint" id="hint-headroom">
+                Fraction of measured capacity you plan to use. Sizing at 1.0 is how deployments fall over.
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="in-vehicles"><span>Vehicles / camera / hour</span><output id="out-vehicles">1200</output></label>
+              <input type="range" id="in-vehicles" min="60" max="6000" step="60" value="1200" aria-describedby="hint-vehicles" />
+              <div class="hint" id="hint-vehicles">Drives the database event rate. Not measured by us.</div>
+            </div>
+
+            <div class="cli-input-group">
+              <button class="cli-btn" onclick="refreshProjection(true)">↻ RECOMPUTE</button>
+              <button class="cli-btn" onclick="resetScaling()">RESET</button>
+            </div>
+            <div class="hint" id="proj-state">idle</div>
+          </div>
+
+          <!-- results -->
+          <div>
+            <div id="proj-notice" class="notice info hidden"></div>
+
+            <div class="sec-title" style="margin-top:0;">
+              <span>Inference tier</span><span class="tag projected">projected</span>
+            </div>
+            <div class="kpi-grid" id="proj-inference"></div>
+
+            <div class="sec-title">
+              <span>Accelerators — rests on an assumed GPU class</span><span class="tag assumption">assumption</span>
+            </div>
+            <div id="gpu-warning" class="notice assume hidden"></div>
+            <div class="kpi-grid" id="proj-gpus"></div>
+
+            <div class="sec-title"><span>Host resources</span><span class="tag projected">projected</span></div>
+            <div class="kpi-grid" id="proj-resources"></div>
+
+            <div class="sec-title"><span>Data tier</span><span class="tag projected">projected</span></div>
+            <div class="kpi-grid" id="proj-data"></div>
+
+            <div class="sec-title"><span>Latency budget</span><span class="tag projected">projected</span></div>
+            <div id="proj-latency"></div>
+
+            <div class="sec-title">
+              <span>Side-by-side: 200 / 500 / 2000 cameras</span><span class="tag projected">projected</span>
+            </div>
+            <table class="cli-table" id="cmp-table">
+              <thead>
+                <tr>
+                  <th>REQUIREMENT</th>
+                  <th class="num" id="cmp-h1">200 CAMS</th>
+                  <th class="num" id="cmp-h2">500 CAMS</th>
+                  <th class="num" id="cmp-h3">2000 CAMS</th>
+                </tr>
+              </thead>
+              <tbody id="cmp-body">
+                <tr><td colspan="4" class="muted">Not computed yet.</td></tr>
+              </tbody>
+            </table>
+
+            <details class="raw" id="proj-raw-wrap" style="display:none;">
+              <summary>Raw /benchmarks/projection response</summary>
+              <pre id="proj-raw"></pre>
+            </details>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- EDGE VS CENTRAL -->
+    <section class="box">
+      <div class="box-header">
+        <span>Edge vs Central Placement</span>
+        <span><span class="tag projected">projected</span></span>
+      </div>
+      <div class="box-body">
+        <div id="edge-notice" class="notice info hidden"></div>
+        <div class="grid-2">
+          <div>
+            <table class="cli-table">
+              <thead><tr><th>METRIC</th><th class="num">CENTRAL</th><th class="num">EDGE</th></tr></thead>
+              <tbody id="edge-body">
+                <tr><td colspan="3" class="muted">Waiting on a projection response.</td></tr>
+              </tbody>
+            </table>
+            <div id="edge-reduction" style="margin-top:8px;"></div>
+            <div class="grid-2" style="margin-top:8px;">
+              <div>
+                <div class="field-label hint" style="text-transform:uppercase; letter-spacing:0.5px;">Central — pros / cons</div>
+                <ul class="method pro" id="central-pros"></ul>
+                <ul class="method con" id="central-cons"></ul>
+              </div>
+              <div>
+                <div class="field-label hint" style="text-transform:uppercase; letter-spacing:0.5px;">Edge — pros / cons</div>
+                <ul class="method pro" id="edge-pros"></ul>
+                <ul class="method con" id="edge-cons"></ul>
+              </div>
+            </div>
+          </div>
+          <div>
+            <div class="hint" style="line-height:1.7;">
+              <strong class="cyan">Why placement dominates the bill.</strong><br/>
+              A 1080p H.264 traffic stream is a few Mbps, continuously, whether or not a vehicle passes. A
+              structured plate event — camera, timestamp, plate, confidence, vehicle type, speed — is a few
+              hundred bytes, and only exists when a vehicle actually passes. Shipping <em>video</em> to a
+              datacentre means buying city-wide uplink capacity sized for the worst case, 24/7. Shipping
+              <em>events</em> means the network cost tracks real traffic and collapses by three to four orders
+              of magnitude.<br/><br/>
+              <strong class="cyan">Central also pays for decode.</strong> Every analysed frame has to be
+              decoded before inference. At the edge the decode happens once, next to the sensor, on hardware
+              you already bought. Centrally it is a per-camera per-frame cost on the expensive tier — and it
+              is measured, in the per-stage panel above.<br/><br/>
+              <strong class="amber">The honest caveat.</strong> The bandwidth arithmetic is arithmetic over an
+              assumed per-camera bitrate. Any accelerator count assumes a GPU class this laptop is not, and
+              was never benchmarked against. Only the per-frame, per-crop, per-event and decode costs above
+              were actually timed here.
+            </div>
+            <div id="edge-recommendation" style="margin-top:10px;"></div>
+            <div id="edge-cost-note" style="margin-top:8px;"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="grid-2">
+      <!-- INGEST -->
+      <section class="box">
+        <div class="box-header"><span>Ingest Throughput</span><span class="tag measured">measured</span></div>
+        <div class="box-body">
+          <div id="ingest-notice" class="notice info hidden"></div>
+          <table class="cli-table">
+            <thead>
+              <tr><th>PATH</th><th class="num">BATCH</th><th class="num">EVENTS/S</th><th class="num">P50</th><th class="num">P95</th></tr>
+            </thead>
+            <tbody id="ingest-body"><tr><td colspan="5" class="muted">No ingest results loaded.</td></tr></tbody>
+          </table>
+          <div id="ingest-notes" style="margin-top:8px;"></div>
+        </div>
+      </section>
+
+      <!-- QUERY LATENCY -->
+      <section class="box">
+        <div class="box-header"><span>Query Latency vs Table Size</span><span class="tag measured">measured</span></div>
+        <div class="box-body">
+          <div id="query-notice" class="notice info hidden"></div>
+          <table class="cli-table">
+            <thead>
+              <tr><th>ENDPOINT</th><th class="num">P50</th><th class="num">P95</th><th class="num">BYTES</th></tr>
+            </thead>
+            <tbody id="query-body"><tr><td colspan="4" class="muted">No query results loaded.</td></tr></tbody>
+          </table>
+          <div id="query-notes" style="margin-top:8px;"></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- ASSUMPTIONS & METHOD -->
+    <section class="box">
+      <div class="box-header">
+        <span>Assumptions &amp; Method</span>
+        <span>
+          <button class="cli-btn primary" id="rerun-btn" onclick="runBenchmarks()">▶ RE-RUN BENCHMARKS</button>
+          <span class="hint" style="margin-left:8px;">~1 min</span>
+        </span>
+      </div>
+      <div class="box-body">
+        <div id="run-notice" class="notice info hidden"></div>
+
+        <div class="sec-title">
+          <span>Every assumption the projections use, and why</span><span class="tag assumption">assumption</span>
+        </div>
+        <table class="cli-table" id="assume-table">
+          <thead><tr><th>ASSUMPTION</th><th class="num">VALUE</th><th>RATIONALE</th></tr></thead>
+          <tbody id="assume-body"><tr><td colspan="3" class="muted">Loaded with the projection.</td></tr></tbody>
+        </table>
+
+        <div class="grid-2" style="margin-top:12px;">
+          <div>
+            <div class="sec-title"><span>How the measured numbers were taken</span><span class="tag measured">measured</span></div>
+            <ul class="method" id="method-measured">
+              <li><strong>Warmup discarded.</strong> The first detection frames and OCR reads are thrown away —
+                they include model load, lazy kernel compilation and cache warming.</li>
+              <li><strong>p50 and p95, not means.</strong> A single stalled frame skews an average; p95 is what
+                a latency budget has to survive.</li>
+              <li><strong>Resolution is stated,</strong> because detection cost is governed by the letterboxed
+                inference size, not the source frame size. A figure quoted without it is not a figure.</li>
+              <li><strong>Single stream, single process.</strong> No contention from neighbouring workers,
+                which a real host will have.</li>
+              <li><strong>Database suites run against a throwaway database</strong> created for the run and
+                deleted afterwards, with synthetic seeded rows — never the live one.</li>
+            </ul>
+          </div>
+          <div>
+            <div class="sec-title"><span>What the projections assume</span><span class="tag assumption">assumption</span></div>
+            <ul class="method">
+              <li><strong>Linear extrapolation.</strong> Fleet cost = measured single-stream cost × streams.
+                Real systems benefit sub-linearly from batching and suffer super-linearly from contention;
+                neither is modelled.</li>
+              <li><strong>Accelerator class is an assumption.</strong> Any GPU count is the measured per-frame
+                cost divided by an assumed speedup for an assumed device. Nothing of that sort was
+                benchmarked here — treat GPU counts as order-of-magnitude sizing, not a purchase order.</li>
+              <li><strong>Uniform traffic.</strong> Events per second is an average; peak hour on an arterial
+                road runs several times the mean, which is what the headroom slider is for.</li>
+              <li><strong>Storage is structured events only</strong> — rows and indices, not retained video or
+                plate crops, which dominate every other storage line by orders of magnitude.</li>
+              <li><strong>Real deployments add overhead</strong> not modelled here: stream reconnects, model
+                rollout, replication, monitoring, egress. Budget above these numbers, never at them.</li>
+              <li><strong>No prices.</strong> This page deliberately quotes no currency figures, because no
+                hardware or bandwidth pricing was measured or sourced.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="sec-title"><span>How the API labels its own numbers</span></div>
+        <dl class="kv" id="how-to-read"><dt>—</dt><dd>—</dd></dl>
+
+        <div class="sec-title"><span>Reproduce it yourself</span></div>
+        <div class="mono-block">cd /Users/aarushsharma/Documents/SIH/vehicle-intelligence-backend
+.venv/bin/python scripts/run_benchmarks.py --suite all</div>
+
+        <details class="raw" id="bench-raw-wrap" style="display:none;">
+          <summary>Raw /benchmarks/ response</summary>
+          <pre id="bench-raw"></pre>
+        </details>
+      </div>
+    </section>
+
+  </main>
+
+<script>
+'use strict';
+
+const API_BASE = window.location.origin;
+const DASH = '—';
+
+/* ──────────────────────────────────────────────────────────────────
+   Accessors.
+
+   The API wraps every figure in a provenance envelope:
+       { value, unit, kind: MEASURED|PROJECTED|DERIVED, method, depends_on, caveat }
+   That envelope is the whole point of this page, so it is read as-is
+   rather than flattened: the badge next to a number comes from the
+   backend's own `kind`, never from a guess made here.
+
+   Lookups are a breadth-first search by key name so that a change in
+   nesting depth cannot silently blank a panel. Ambiguous names (e.g.
+   `measured_p50`, which exists under both detection and ocr) are always
+   looked up against an explicitly scoped sub-object.
+   ────────────────────────────────────────────────────────────────── */
+
+function getPath(obj, path) {
+  if (obj === null || obj === undefined) return undefined;
+  let cur = obj;
+  for (const part of String(path).split('.')) {
+    if (cur === null || cur === undefined || typeof cur !== 'object') return undefined;
+    cur = cur[part];
+  }
+  return cur;
+}
+
+function isMetric(o) {
+  return !!o && typeof o === 'object' && !Array.isArray(o) &&
+         Object.prototype.hasOwnProperty.call(o, 'value') &&
+         Object.prototype.hasOwnProperty.call(o, 'kind');
+}
+
+function deepFind(root, name) {
+  if (!root || typeof root !== 'object') return undefined;
+  const queue = [root];
+  let guard = 0;
+  while (queue.length > 0 && guard < 8000) {
+    guard++;
+    const node = queue.shift();
+    if (!node || typeof node !== 'object') continue;
+    if (!Array.isArray(node) && Object.prototype.hasOwnProperty.call(node, name)) return node[name];
+    const values = Array.isArray(node) ? node : Object.keys(node).map(function (k) { return node[k]; });
+    for (const v of values) if (v && typeof v === 'object') queue.push(v);
+  }
+  return undefined;
+}
+
+function deep(root, names) {
+  for (const n of names) {
+    const v = deepFind(root, n);
+    if (v !== undefined && v !== null && v !== '') return v;
+  }
+  return undefined;
+}
+
+/** Returns the provenance envelope, or a synthetic one for a bare scalar. */
+function metric(root, names) {
+  const v = deep(root, names);
+  if (v === undefined) return null;
+  if (isMetric(v)) return v;
+  if (typeof v === 'object') return null;
+  return { value: v, unit: null, kind: null, method: null };
+}
+
+/** A scalar (never an object), for labels. */
+function scalar(root, names) {
+  for (const n of names) {
+    const v = deepFind(root, n);
+    if (v === undefined || v === null || v === '' || typeof v === 'object') continue;
+    return v;
+  }
+  return undefined;
+}
+
+function numOf(m) {
+  if (!m) return undefined;
+  const n = Number(m.value);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/* ── formatting ─────────────────────────────────────────────────── */
+
+function fmtInt(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return DASH;
+  return Math.round(n).toLocaleString('en-US');
+}
+
+function fmtNum(v, d) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return DASH;
+  const dec = (d === undefined) ? 1 : d;
+  return n.toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+}
+
+/** Auto-precision across wildly different magnitudes (0.004 … 14,400,000). */
+function fmtAuto(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return DASH;
+  const a = Math.abs(n);
+  if (a === 0) return '0';
+  if (a >= 1e6) return fmtNum(n / 1e6, 2) + 'M';
+  if (a >= 1000) return fmtInt(n);
+  if (a >= 100) return fmtNum(n, 1);
+  if (a >= 1) return fmtNum(n, 2);
+  if (a >= 0.01) return fmtNum(n, 3);
+  return n.toExponential(2);
+}
+
+function fmtMs(v, d) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return DASH;
+  if (n >= 1000) return fmtNum(n / 1000, 2) + ' s';
+  if (n < 1) return fmtNum(n * 1000, 0) + ' µs';
+  return fmtNum(n, d === undefined ? 1 : d) + ' ms';
+}
+
+function fmtGB(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return DASH;
+  if (n >= 1024) return fmtNum(n / 1024, 2) + ' TB';
+  if (n < 1) return fmtNum(n * 1024, 0) + ' MB';
+  return fmtNum(n, n < 10 ? 2 : 1) + ' GB';
+}
+
+function fmtBytes(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return DASH;
+  if (n >= 1e9) return fmtNum(n / 1e9, 2) + ' GB';
+  if (n >= 1e6) return fmtNum(n / 1e6, 2) + ' MB';
+  if (n >= 1024) return fmtNum(n / 1024, 1) + ' KB';
+  return fmtInt(n) + ' B';
+}
+
+function fmtMbps(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return DASH;
+  if (n >= 1000) return fmtNum(n / 1000, 2) + ' Gbps';
+  if (n < 1) return fmtNum(n * 1000, 0) + ' kbps';
+  return fmtNum(n, n < 10 ? 2 : 1) + ' Mbps';
+}
+
+function fmtCount(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return DASH;
+  if (n >= 1e9) return fmtNum(n / 1e9, 2) + 'B';
+  if (n >= 1e6) return fmtNum(n / 1e6, 2) + 'M';
+  if (n >= 1e4) return fmtNum(n / 1e3, 1) + 'k';
+  if (n >= 100) return fmtInt(n);
+  return fmtAuto(n);
+}
+
+function fmtWhen(v) {
+  if (v === null || v === undefined || v === '') return DASH;
+  const raw = String(v);
+  let d = new Date(raw);
+  if (isNaN(d.getTime()) && /^\d+(\.\d+)?$/.test(raw)) {
+    const n = Number(raw);
+    d = new Date(n > 1e12 ? n : n * 1000);
+  }
+  if (isNaN(d.getTime())) return raw;
+  const ageMs = Date.now() - d.getTime();
+  let age = '';
+  if (ageMs >= 0) {
+    const mins = Math.round(ageMs / 60000);
+    if (mins < 1) age = ' (just now)';
+    else if (mins < 60) age = ' (' + mins + ' min ago)';
+    else if (mins < 60 * 48) age = ' (' + Math.round(mins / 60) + ' h ago)';
+    else age = ' (' + Math.round(mins / 1440) + ' d ago)';
+  }
+  return d.toLocaleString('en-GB', {
+    hour12: false, day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
+  }) + age;
+}
+
+function esc(v) {
+  if (v === null || v === undefined) return DASH;
+  return String(v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function txt(v) {
+  if (v === null || v === undefined || v === '') return DASH;
+  return esc(v);
+}
+
+function setText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = (value === null || value === undefined || value === '') ? DASH : String(value);
+}
+
+function setHtml(id, html) {
+  const el = document.getElementById(id);
+  if (el) el.innerHTML = html;
+}
+
+function showNotice(id, cls, html) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.className = 'notice ' + cls;
+  el.innerHTML = html;
+}
+
+function hideNotice(id) {
+  const el = document.getElementById(id);
+  if (el) el.className = 'notice info hidden';
+}
+
+/* ── provenance rendering ───────────────────────────────────────── */
+
+const KIND_CLASS = { MEASURED: 'measured', PROJECTED: 'projected', DERIVED: 'derived', ASSUMPTION: 'assumption' };
+
+function kindTag(kind, short) {
+  const k = String(kind || '').toUpperCase();
+  const cls = KIND_CLASS[k] || 'unknown';
+  const label = short ? (k ? k.charAt(0).toLowerCase() : '?') : (k || 'unlabelled');
+  return '<span class="tag ' + cls + '" title="' + esc(k || 'kind not reported by the API') + '">' +
+         esc(label) + '</span>';
+}
+
+/** Method + caveat, as a hover explanation. Never rendered as a value. */
+function noteOf(m) {
+  if (!m) return '';
+  const bits = [];
+  if (m.method) bits.push('method: ' + m.method);
+  if (m.caveat) bits.push('caveat: ' + m.caveat);
+  if (m.depends_on && typeof m.depends_on === 'object') {
+    const keys = Object.keys(m.depends_on).filter(function (k) {
+      return m.depends_on[k] === null || typeof m.depends_on[k] !== 'object';
+    });
+    if (keys.length) {
+      bits.push('depends on: ' + keys.map(function (k) {
+        return k + '=' + m.depends_on[k];
+      }).join(', '));
+    }
+  }
+  return bits.join('\n\n');
+}
+
+/**
+ * One KPI tile from a provenance envelope.
+ *
+ * `suppressUnit` is for formatters that already embed their own unit (fmtGB,
+ * fmtBytes, fmtMs); without it the API's `unit` string is appended on top and
+ * you get "543.8 GB GB".
+ */
+function kpiTile(label, m, fmt, colour, suppressUnit) {
+  const kind = String((m && m.kind) || '').toUpperCase();
+  const cls = KIND_CLASS[kind] || 'unknown';
+  const note = noteOf(m);
+  const n = numOf(m);
+  let valueHtml;
+  if (m === null || m === undefined || m.value === null || m.value === undefined) valueHtml = DASH;
+  else if (n === undefined) valueHtml = esc(String(m.value));
+  else valueHtml = (fmt ? fmt(n) : fmtAuto(n));
+
+  // The API's unit string often repeats the unit the formatter already printed
+  // ("543.8 GB" + "GB (inference tier)"). Strip only that leading token so the
+  // qualifier after it — "(inference tier)", "at 90-day retention" — survives.
+  let unit = '';
+  if (m && m.unit) {
+    let u = String(m.unit);
+    // Keep any separator that follows, so "GB/day" becomes "/day" and not "day".
+    if (suppressUnit) u = u.replace(/^(TB|GB|MB|KB|B|bytes?|ms|µs|s|Mbps|Gbps)\b\s*/i, '').trim();
+    if (u) unit = ' <span class="u">' + esc(u) + '</span>';
+  }
+  return '<div class="kpi k-' + cls + '"' + (note ? ' title="' + esc(note) + '"' : '') + '>' +
+    '<div class="kpi-label"><span class="t">' + esc(label) + '</span>' + kindTag(kind, true) + '</div>' +
+    '<div class="kpi-value ' + (colour || '') + '">' + valueHtml + unit + '</div>' +
+    ((m && m.caveat) ? '<div class="kpi-sub" title="' + esc(m.caveat) + '">⚠ ' + esc(String(m.caveat).slice(0, 60)) + '…</div>' : '') +
+    '</div>';
+}
+
+function renderTiles(containerId, tiles) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  const good = tiles.filter(Boolean);
+  el.innerHTML = good.length ? good.join('')
+    : '<div class="hint">The API returned no figures for this section.</div>';
+}
+
+/* ── fetch wrapper ──────────────────────────────────────────────── */
+
+async function apiFetch(path, options) {
+  try {
+    const res = await fetch(API_BASE + path, options || {});
+    let body = null;
+    const ct = res.headers.get('content-type') || '';
+    try {
+      body = ct.indexOf('json') >= 0 ? await res.json() : await res.text();
+    } catch (_e) {
+      body = null;
+    }
+    if (!res.ok) {
+      let detail = '';
+      let hint = '';
+      if (body && typeof body === 'object') {
+        const d = body.detail !== undefined ? body.detail : body.message;
+        if (d !== null && typeof d === 'object') {
+          detail = d.error || d.message || '';
+          hint = d.hint || '';
+        } else if (d) {
+          detail = String(d);
+        }
+      } else if (typeof body === 'string') {
+        detail = body.slice(0, 240);
+      }
+      return {
+        ok: false, status: res.status, body: body,
+        error: detail || ('HTTP ' + res.status), hint: hint
+      };
+    }
+    return { ok: true, status: res.status, body: body };
+  } catch (err) {
+    return {
+      ok: false, status: 0, body: null,
+      error: 'network: ' + (err && err.message ? err.message : String(err)), hint: ''
+    };
+  }
+}
+
+/**
+ * Explain a failure. A 404 that carries a detail is the API telling us
+ * something real (e.g. "no results recorded yet"); a bare "Not Found" means
+ * the optional router was never mounted. Conflating those two would send the
+ * operator chasing the wrong problem.
+ */
+function failNotice(label, res) {
+  if (!res) return '<strong>' + label + '</strong> failed for an unknown reason.';
+  if (res.status === 0) {
+    return '<strong>Backend unreachable.</strong> ' + esc(res.error || '') +
+           ' — is the API running on <code>' + esc(API_BASE) + '</code>?';
+  }
+  const detail = res.error || '';
+  const isBare = !detail || detail === 'Not Found' || detail === 'HTTP 404';
+  if (res.status === 404 && isBare) {
+    return '<strong>' + label + ' is not deployed (404).</strong> The benchmark router is an optional ' +
+           'feature — the API boots without it and logs it as DISABLED. Enable ' +
+           '<code>backend/api/benchmarks.py</code> and reload.';
+  }
+  return '<strong>' + label + ' failed (HTTP ' + res.status + ').</strong> ' + esc(detail) +
+         (res.hint ? '<br/><span class="cyan">' + esc(res.hint) + '</span>' : '');
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   MEASURED — GET /benchmarks/
+   ══════════════════════════════════════════════════════════════════ */
+
+let benchData = null;
+
+function showEmptyState(title, detailHtml) {
+  const box = document.getElementById('empty-box');
+  box.style.display = '';
+  setText('empty-title', title);
+  setHtml('empty-detail', detailHtml);
+}
+
+function hideEmptyState() {
+  document.getElementById('empty-box').style.display = 'none';
+}
+
+const MEASURED_NOTICES = ['kpi-notice', 'stage-notice', 'hw-notice', 'ingest-notice', 'query-notice'];
+
+/**
+ * Blank every measured figure.
+ *
+ * Called before reporting that measured data is unavailable. Without this, a
+ * successful earlier load would leave real-looking numbers on screen next to an
+ * error message — the single worst failure mode for a page whose whole claim is
+ * that you can tell where each number came from.
+ */
+function clearMeasured() {
+  ['kpi-device', 'kpi-device-sub', 'kpi-detect', 'kpi-ocr', 'kpi-fps', 'kpi-ingest', 'kpi-bytes',
+   'measured-at', 'machine-label'].forEach(function (id) { setText(id, DASH); });
+  setText('kpi-detect-sub', 'p50 · p95');
+  setText('kpi-ocr-sub', 'p50 · p95');
+  setText('kpi-fps-sub', 'single stream, single worker');
+  setText('kpi-ingest-sub', DASH);
+  setHtml('stale-tag', '');
+  setHtml('stage-bars', '<div class="hint">No measured per-stage timings available.</div>');
+  setHtml('stage-notes', '');
+  setHtml('hw-kv', '<dt>hardware profile</dt><dd class="muted">' + DASH + '</dd>');
+  setHtml('ingest-body', '<tr><td colspan="5" class="muted">No measured ingest data available.</td></tr>');
+  setHtml('ingest-notes', '');
+  setHtml('query-body', '<tr><td colspan="4" class="muted">No measured query data available.</td></tr>');
+  setHtml('query-notes', '');
+  setHtml('how-to-read', '<dt class="muted">unavailable</dt><dd>' + DASH + '</dd>');
+  document.getElementById('crosscheck-box').style.display = 'none';
+  document.getElementById('errors-box').style.display = 'none';
+  const accel = document.getElementById('accel-note');
+  if (accel) accel.className = 'notice assume hidden';
+}
+
+async function loadBenchmarks() {
+  const res = await apiFetch('/benchmarks/');
+
+  if (!res.ok) {
+    benchData = null;
+    clearMeasured();
+    const bare = !res.error || res.error === 'Not Found' || res.error === 'HTTP 404';
+    if (res.status === 404 && !bare) {
+      // The router is alive; it simply has nothing recorded yet.
+      showEmptyState('NO MEASURED RESULTS RECORDED YET',
+        esc(res.error) + (res.hint ? '<br/><span class="cyan">' + esc(res.hint) + '</span>' : ''));
+    } else {
+      showEmptyState('BENCHMARK RESULTS UNAVAILABLE', failNotice('GET /benchmarks/', res));
+    }
+    MEASURED_NOTICES.forEach(function (id) {
+      showNotice(id, res.status === 404 ? 'warn' : 'err',
+        'No measured data: ' + esc(res.error || 'HTTP ' + res.status) + '.');
+    });
+    return;
+  }
+
+  benchData = res.body || {};
+  const rawWrap = document.getElementById('bench-raw-wrap');
+  if (rawWrap) {
+    rawWrap.style.display = '';
+    const raw = document.getElementById('bench-raw');
+    try { raw.textContent = JSON.stringify(benchData, null, 2); }
+    catch (_e) { raw.textContent = '(unserialisable)'; }
+  }
+
+  const freshness = getPath(benchData, 'freshness') || {};
+  const available = freshness.available;
+  const stale = freshness.stale === true;
+  const measuredAt = scalar(benchData, ['measured_at']);
+
+  if (available === false || !measuredAt) {
+    showEmptyState('NO MEASURED RESULTS RECORDED YET',
+      esc(freshness.message || 'The API holds no persisted benchmark run for this host.'));
+  } else {
+    hideEmptyState();
+  }
+
+  setText('measured-at', measuredAt ? fmtWhen(measuredAt) : DASH);
+  setText('machine-label', scalar(benchData, ['machine']) || DASH);
+  setHtml('stale-tag', stale ? '<span class="tag stale">stale</span>' : '');
+
+  if (stale) {
+    showNotice('kpi-notice', 'warn',
+      '<strong>These results are flagged stale by the API.</strong> ' +
+      esc(freshness.message || '') +
+      ' Age ' + fmtNum(freshness.age_hours, 1) + ' h, stale after ' +
+      fmtNum(freshness.stale_after_hours, 0) + ' h. Re-run the suite before quoting them.');
+  } else {
+    hideNotice('kpi-notice');
+  }
+
+  MEASURED_NOTICES.forEach(function (id) { if (id !== 'kpi-notice') hideNotice(id); });
+
+  renderSuiteErrors(benchData);
+  renderMeasured(benchData);
+}
+
+function renderSuiteErrors(b) {
+  const box = document.getElementById('errors-box');
+  const errs = getPath(b, 'results.errors') || getPath(b, 'summary.errors') || {};
+  const keys = Object.keys(errs).filter(function (k) { return errs[k]; });
+  if (keys.length === 0) {
+    box.style.display = 'none';
+    return;
+  }
+  box.style.display = '';
+  setHtml('errors-list', keys.map(function (k) {
+    return '<div class="notice err" style="margin-bottom:6px;"><strong>suite &ldquo;' + esc(k) +
+      '&rdquo;</strong><br/>' + esc(String(errs[k])) + '</div>';
+  }).join(''));
+}
+
+function renderMeasured(b) {
+  const results = getPath(b, 'results') || b;
+  const summary = getPath(b, 'summary') || {};
+  const anpr = getPath(results, 'measured.anpr') || deep(results, ['anpr']) || {};
+  const hw = getPath(results, 'hardware') || deep(results, ['hardware']) || {};
+  const ingest = getPath(results, 'measured.ingest') || deep(results, ['ingest']) || {};
+  const query = getPath(results, 'measured.query') || deep(results, ['query']) || {};
+  const storage = getPath(results, 'measured.storage') || {};
+
+  /* device */
+  const device = scalar(hw, ['selected_device', 'device']) || scalar(anpr, ['device_used']);
+  setText('kpi-device', device ? String(device).toUpperCase() : DASH);
+  const cpuModel = scalar(hw, ['model', 'cpu_model']);
+  const logical = scalar(hw, ['logical_cores']);
+  const ramGb = scalar(hw, ['total_gb']);
+  const devSub = [];
+  if (cpuModel) devSub.push(String(cpuModel));
+  if (logical !== undefined) devSub.push(fmtInt(logical) + ' cores');
+  if (ramGb !== undefined) devSub.push(fmtGB(ramGb));
+  setText('kpi-device-sub', devSub.length ? devSub.join(' · ') : DASH);
+
+  /* detection + ocr are scoped: `measured_p50` exists under both */
+  const detBlock = getPath(anpr, 'detection') || {};
+  const ocrBlock = getPath(anpr, 'ocr') || {};
+  const decodeBlock = getPath(anpr, 'decode') || {};
+
+  const detP50 = metric(detBlock, ['measured_p50']) ||
+                 metric(summary, ['detection_ms_per_frame_p50']);
+  const detP95 = metric(detBlock, ['measured_p95']) ||
+                 metric(summary, ['detection_ms_per_frame_p95']);
+  setHtml('kpi-detect', (numOf(detP50) === undefined ? DASH : fmtMs(numOf(detP50), 2)) +
+    ' <span class="u">/frame</span>');
+  setText('kpi-detect-sub',
+    'p50 ' + (numOf(detP50) === undefined ? DASH : fmtMs(numOf(detP50), 2)) +
+    ' · p95 ' + (numOf(detP95) === undefined ? DASH : fmtMs(numOf(detP95), 2)));
+
+  const ocrP50 = metric(ocrBlock, ['measured_p50']) || metric(summary, ['ocr_ms_per_crop_p50']);
+  const ocrP95 = metric(ocrBlock, ['measured_p95']) || metric(summary, ['ocr_ms_per_crop_p95']);
+  setHtml('kpi-ocr', (numOf(ocrP50) === undefined ? DASH : fmtMs(numOf(ocrP50), 2)) +
+    ' <span class="u">/crop</span>');
+  setText('kpi-ocr-sub',
+    'p50 ' + (numOf(ocrP50) === undefined ? DASH : fmtMs(numOf(ocrP50), 2)) +
+    ' · p95 ' + (numOf(ocrP95) === undefined ? DASH : fmtMs(numOf(ocrP95), 2)));
+
+  /* pipeline fps — the API labels this DERIVED, so say DERIVED */
+  const est = getPath(anpr, 'pipeline_estimate') || {};
+  const fps3 = metric(est, ['pipeline_fps_ocr_every_3']);
+  const fps1 = metric(est, ['pipeline_fps_ocr_every_1']);
+  const chosen = fps3 || fps1;
+  setHtml('kpi-fps', (numOf(chosen) === undefined ? DASH : fmtNum(numOf(chosen), 1)) +
+    ' <span class="u">fps</span>');
+  const fpsBits = [];
+  if (numOf(fps3) !== undefined) fpsBits.push('ocr_every=3: ' + fmtNum(numOf(fps3), 1));
+  if (numOf(fps1) !== undefined) fpsBits.push('ocr_every=1: ' + fmtNum(numOf(fps1), 1));
+  setText('kpi-fps-sub', fpsBits.length ? fpsBits.join(' · ') : 'single stream, single worker');
+  const fpsTile = document.getElementById('kpi-fps');
+  if (fpsTile && chosen) {
+    const note = noteOf(chosen);
+    if (note) fpsTile.parentElement.title = note;
+  }
+
+  /* ingest */
+  const bulkBest = metric(ingest, ['best_events_per_second']) ||
+                   metric(summary, ['ingest_events_per_s_bulk_best']);
+  const singleEps = metric(getPath(ingest, 'single') || {}, ['events_per_second']) ||
+                    metric(summary, ['ingest_events_per_s_single']);
+  setHtml('kpi-ingest', (numOf(bulkBest) === undefined ? DASH : fmtCount(numOf(bulkBest))) +
+    ' <span class="u">ev/s</span>');
+  setText('kpi-ingest-sub',
+    'bulk best · single-row ' +
+    (numOf(singleEps) === undefined ? DASH : fmtCount(numOf(singleEps)) + ' ev/s'));
+
+  /* storage per event */
+  const bpe = metric(getPath(storage, 'temp_db') || {}, ['bytes_per_event']) ||
+              metric(summary, ['bytes_per_event']);
+  setHtml('kpi-bytes', numOf(bpe) === undefined ? DASH : fmtBytes(numOf(bpe)));
+
+  renderStageBars(anpr, decodeBlock, detBlock, ocrBlock);
+  renderHardware(hw);
+  renderCrossCheck(anpr);
+  renderIngest(ingest);
+  renderQueries(query);
+  renderHowToRead(results);
+}
+
+function renderStageBars(anpr, decodeBlock, detBlock, ocrBlock) {
+  const el = document.getElementById('stage-bars');
+  const entries = [];
+
+  const push = function (name, cls, m) {
+    const n = numOf(m);
+    if (n === undefined) return;
+    entries.push({ name: name, cls: cls, ms: n, kind: (m && m.kind) || null, note: noteOf(m) });
+  };
+  push('decode', 'decode', metric(decodeBlock, ['measured']));
+  push('detect', 'detect', metric(detBlock, ['measured_p50']));
+  push('ocr', 'ocr', metric(ocrBlock, ['measured_p50']));
+
+  if (entries.length === 0) {
+    el.innerHTML = '<div class="hint">No per-stage timings in the persisted results — the ANPR suite ' +
+      'did not complete. See the panel above for why.</div>';
+    setHtml('stage-notes', '');
+    return;
+  }
+
+  const total = entries.reduce(function (a, e) { return a + Math.max(0, e.ms); }, 0);
+  el.innerHTML = entries.map(function (e) {
+    const pct = total > 0 ? (Math.max(0, e.ms) / total) * 100 : 0;
+    const colour = e.cls === 'ocr' ? 'purple' : e.cls === 'detect' ? 'cyan' : 'green';
+    return '<div class="stage-row"' + (e.note ? ' title="' + esc(e.note) + '"' : '') + '>' +
+      '<div class="stage-name">' + esc(e.name) + ' ' + kindTag(e.kind, true) + '</div>' +
+      '<div class="stage-track"><div class="stage-fill ' + e.cls +
+        '" style="width:' + pct.toFixed(1) + '%"></div></div>' +
+      '<div class="stage-val"><span class="' + colour + '">' + fmtMs(e.ms, 2) + '</span> ' +
+        '<span class="muted">' + fmtNum(pct, 1) + '%</span></div>' +
+      '</div>';
+  }).join('') +
+  '<div class="hint" style="margin-top:6px;">Sum of one decode + one detection + one OCR read: ' +
+  '<span class="cyan">' + fmtMs(total, 2) + '</span>. A real frame does not pay all three every time — ' +
+  'OCR only fires every <code>ocr_every</code>-th plate-bearing frame.</div>';
+
+  /* the notes the suite attached to these numbers are worth surfacing */
+  const notes = [];
+  const resNote = scalar(getPath(anpr, 'input_resolution') || {}, ['note']);
+  const wh = getPath(anpr, 'input_resolution.frame_wh');
+  const imgsz = scalar(getPath(anpr, 'input_resolution') || {}, ['yolo_imgsz']);
+  if (Array.isArray(wh) && wh.length === 2) {
+    notes.push('<strong>Measured at</strong> ' + fmtInt(wh[0]) + '×' + fmtInt(wh[1]) +
+      ' source' + (imgsz !== undefined ? ', letterboxed to yolo_imgsz=' + fmtInt(imgsz) : '') + '.');
+  }
+  if (resNote) notes.push(esc(resNote));
+  const warm = scalar(anpr, ['warmup_note']);
+  if (warm) notes.push(esc(warm));
+  const ocrNote = scalar(ocrBlock, ['note']);
+  if (ocrNote) notes.push(esc(ocrNote));
+  const decodeWhy = scalar(decodeBlock, ['why_it_matters']);
+  if (decodeWhy) notes.push('<strong>Why decode is listed:</strong> ' + esc(decodeWhy));
+  setHtml('stage-notes', notes.length
+    ? '<div class="notice info" style="margin-bottom:0;">' + notes.join('<br/><br/>') + '</div>' : '');
+}
+
+const HW_ROWS = [
+  ['cpu', 'model'], ['physical cores', 'physical_cores'], ['logical cores', 'logical_cores'],
+  ['performance cores', 'performance_cores'], ['efficiency cores', 'efficiency_cores'],
+  ['machine model', 'machine_model'], ['arch', 'arch'],
+  ['total ram', 'total_gb'], ['available ram', 'available_gb'],
+  ['selected device', 'selected_device'], ['cuda available', 'cuda_available'],
+  ['cuda device', 'cuda_device_name'], ['mps usable', 'mps_usable'],
+  ['os', 'platform'], ['python', 'python'],
+  ['torch', 'torch'], ['ultralytics', 'ultralytics'], ['opencv', 'cv2'], ['paddleocr', 'paddleocr']
+];
+
+function renderHardware(hw) {
+  const el = document.getElementById('hw-kv');
+  if (!hw || typeof hw !== 'object' || Object.keys(hw).length === 0) {
+    el.innerHTML = '<dt>hardware profile</dt><dd class="muted">' + DASH + '</dd>';
+    return;
+  }
+  const rows = [];
+  HW_ROWS.forEach(function (pair) {
+    const v = deepFind(hw, pair[1]);
+    if (v === undefined || v === null || v === '') return;
+    if (typeof v === 'object') return;
+    let out;
+    if (typeof v === 'boolean') out = v ? '<span class="green">yes</span>' : '<span class="muted">no</span>';
+    else if (pair[1] === 'total_gb' || pair[1] === 'available_gb') out = fmtGB(Number(v));
+    else out = esc(v);
+    rows.push('<dt>' + esc(pair[0]) + '</dt><dd>' + out + '</dd>');
+  });
+  el.innerHTML = rows.length ? rows.join('')
+    : '<dt>hardware profile</dt><dd class="muted">' + DASH + '</dd>';
+
+  // The accelerator note is the single most important honesty statement the
+  // backend makes, so it gets its own callout rather than a table row.
+  const note = scalar(getPath(hw, 'accelerator') || hw, ['note']);
+  const nEl = document.getElementById('accel-note');
+  if (nEl) {
+    if (note) {
+      nEl.className = 'notice assume';
+      nEl.innerHTML = '<strong>Accelerator caveat, straight from the benchmark:</strong> ' + esc(note);
+    } else {
+      nEl.className = 'notice assume hidden';
+    }
+  }
+}
+
+async function loadHardwareLive() {
+  const res = await apiFetch('/benchmarks/hardware');
+  if (!res.ok) {
+    const el = document.getElementById('hw-kv');
+    if (el && el.textContent.indexOf('loading') >= 0) {
+      el.innerHTML = '<dt>hardware profile</dt><dd class="muted">' + DASH + '</dd>';
+      showNotice('hw-notice', res.status === 404 ? 'warn' : 'err', failNotice('GET /benchmarks/hardware', res));
+    }
+    return;
+  }
+  hideNotice('hw-notice');
+  renderHardware(res.body || {});
+  const device = scalar(res.body, ['selected_device']);
+  if (device && document.getElementById('kpi-device').textContent === DASH) {
+    setText('kpi-device', String(device).toUpperCase());
+  }
+}
+
+function renderCrossCheck(anpr) {
+  const box = document.getElementById('crosscheck-box');
+  const cc = getPath(anpr, 'upstream_cross_check');
+  const verdict = cc ? getPath(cc, 'verdict') : null;
+  if (!verdict || typeof verdict !== 'object' || Object.keys(verdict).length === 0) {
+    box.style.display = 'none';
+    return;
+  }
+  box.style.display = '';
+  const rows = Object.keys(verdict).map(function (k) {
+    const v = verdict[k] || {};
+    const ours = Number(v.ours_ms);
+    const ref = Number(v.reference_ms);
+    const ratio = Number(v.ratio_ours_over_reference);
+    const assess = String(v.assessment || DASH);
+    const cls = /consistent|match|agree/i.test(assess) ? 'green'
+      : /faster/i.test(assess) ? 'cyan' : /slow|diverg|inconsistent/i.test(assess) ? 'amber' : 'muted';
+    return '<tr>' +
+      '<td class="muted">' + esc(k.replace(/_/g, ' ')) + '</td>' +
+      '<td class="num cyan">' + (Number.isFinite(ours) ? fmtMs(ours, 2) : DASH) + '</td>' +
+      '<td class="num">' + (Number.isFinite(ref) ? fmtMs(ref, 2) : DASH) + '</td>' +
+      '<td class="num">' + (Number.isFinite(ratio) ? fmtNum(ratio, 2) + '×' : DASH) + '</td>' +
+      '<td class="' + cls + '">' + esc(assess) + '</td>' +
+      '</tr>';
+  });
+  setHtml('crosscheck-body', rows.join(''));
+  const src = scalar(getPath(cc, 'reference') || {}, ['source']);
+  const note = scalar(cc, ['note']);
+  setHtml('crosscheck-note',
+    (src ? '<strong>Reference:</strong> ' + esc(src) + '<br/>' : '') + (note ? esc(note) : ''));
+}
+
+function renderIngest(ingest) {
+  const body = document.getElementById('ingest-body');
+  const rows = [];
+
+  const single = getPath(ingest, 'single');
+  if (single) {
+    const eps = metric(single, ['events_per_second']);
+    const st = getPath(single, 'stats') || {};
+    rows.push('<tr' + (noteOf(eps) ? ' title="' + esc(noteOf(eps)) + '"' : '') + '>' +
+      '<td>' + esc(scalar(single, ['endpoint']) || 'single') + ' ' + kindTag(eps && eps.kind, true) + '</td>' +
+      '<td class="num muted">1</td>' +
+      '<td class="num green">' + (numOf(eps) === undefined ? DASH : fmtCount(numOf(eps))) + '</td>' +
+      '<td class="num">' + (Number.isFinite(Number(st.p50_ms)) ? fmtMs(st.p50_ms, 2) : DASH) + '</td>' +
+      '<td class="num amber">' + (Number.isFinite(Number(st.p95_ms)) ? fmtMs(st.p95_ms, 2) : DASH) + '</td>' +
+      '</tr>');
+  }
+
+  const bulk = getPath(ingest, 'bulk');
+  const byBatch = bulk ? getPath(bulk, 'by_batch_size') : null;
+  if (Array.isArray(byBatch)) {
+    byBatch.forEach(function (r) {
+      const perEvent = metric(r, ['per_event_ms_mean']);
+      const eps = metric(r, ['events_per_second']);
+      const bs = scalar(r, ['batch_size']);
+      const perEventMs = numOf(perEvent);
+      const epsVal = numOf(eps) !== undefined ? numOf(eps)
+        : (perEventMs ? 1000 / perEventMs : undefined);
+      const bsMean = Number(r.batch_seconds_mean);
+      const bsP95 = Number(r.batch_seconds_p95);
+      return rows.push('<tr' + (noteOf(perEvent) ? ' title="' + esc(noteOf(perEvent)) + '"' : '') + '>' +
+        '<td>' + esc(scalar(bulk, ['endpoint']) || 'bulk') + ' ' + kindTag('MEASURED', true) + '</td>' +
+        '<td class="num">' + (bs === undefined ? DASH : fmtInt(bs)) + '</td>' +
+        '<td class="num green">' + (epsVal === undefined ? DASH : fmtCount(epsVal)) + '</td>' +
+        '<td class="num">' + (Number.isFinite(bsMean) ? fmtMs(bsMean * 1000, 1) : DASH) + '</td>' +
+        '<td class="num amber">' + (Number.isFinite(bsP95) ? fmtMs(bsP95 * 1000, 1) : DASH) + '</td>' +
+        '</tr>');
+    });
+  }
+
+  body.innerHTML = rows.length ? rows.join('')
+    : '<tr><td colspan="5" class="muted">No ingest results in the persisted run.</td></tr>';
+
+  const notes = [];
+  ['work_per_event', 'concurrency'].forEach(function (k) {
+    const v = scalar(ingest, [k]);
+    if (v) notes.push('<strong>' + esc(k.replace(/_/g, ' ')) + ':</strong> ' + esc(v));
+  });
+  const bulkNote = bulk ? scalar(bulk, ['note']) : null;
+  if (bulkNote) notes.push(esc(bulkNote));
+  const singleNote = single ? scalar(single, ['note']) : null;
+  if (singleNote) notes.push(esc(singleNote));
+  setHtml('ingest-notes', notes.length
+    ? '<div class="notice info" style="margin-bottom:0;">' + notes.join('<br/><br/>') + '</div>' : '');
+}
+
+function renderQueries(query) {
+  const body = document.getElementById('query-body');
+  const scales = getPath(query, 'scales');
+  const rows = [];
+
+  if (Array.isArray(scales)) {
+    scales.forEach(function (s) {
+      const n = Number(s.vehicle_event_rows);
+      rows.push('<tr class="group"><td colspan="4">' +
+        (Number.isFinite(n) ? fmtCount(n) + ' vehicle_event rows' : 'scale') +
+        (s.seeded ? ' · synthetic seeded data' : '') + '</td></tr>');
+      const eps = Array.isArray(s.endpoints) ? s.endpoints : [];
+      eps.forEach(function (e) {
+        const st = getPath(e, 'stats') || {};
+        const p50 = Number(st.p50_ms);
+        const p95 = Number(st.p95_ms);
+        const bytes = Number(e.response_bytes);
+        const cls = !Number.isFinite(p50) ? '' : (p50 < 50 ? 'green' : p50 < 250 ? 'amber' : 'red');
+        const status = Number(e.http_status);
+        const bad = Number.isFinite(status) && status >= 400;
+        rows.push('<tr>' +
+          '<td' + (e.url ? ' title="' + esc(e.url) + '"' : '') + '>' +
+            esc(scalar(e, ['name']) || scalar(e, ['url']) || DASH) +
+            (bad ? ' <span class="red">HTTP ' + status + '</span>' : '') + '</td>' +
+          '<td class="num ' + cls + '">' + (Number.isFinite(p50) ? fmtMs(p50, 1) : DASH) + '</td>' +
+          '<td class="num amber">' + (Number.isFinite(p95) ? fmtMs(p95, 1) : DASH) + '</td>' +
+          '<td class="num muted">' + (Number.isFinite(bytes) ? fmtBytes(bytes) : DASH) + '</td>' +
+          '</tr>');
+      });
+    });
+  }
+
+  body.innerHTML = rows.length ? rows.join('')
+    : '<tr><td colspan="4" class="muted">No query results in the persisted run.</td></tr>';
+
+  const notes = [];
+  ['engine', 'row_count_caveat', 'known_limitation'].forEach(function (k) {
+    const v = scalar(query, [k]);
+    if (v) notes.push('<strong>' + esc(k.replace(/_/g, ' ')) + ':</strong> ' + esc(v));
+  });
+  setHtml('query-notes', notes.length
+    ? '<div class="notice info" style="margin-bottom:0;">' + notes.join('<br/><br/>') + '</div>' : '');
+}
+
+function renderHowToRead(results) {
+  const h = getPath(results, 'how_to_read_this');
+  const el = document.getElementById('how-to-read');
+  if (!h || typeof h !== 'object') {
+    el.innerHTML = '<dt class="muted">not reported by the API</dt><dd>' + DASH + '</dd>';
+    return;
+  }
+  el.innerHTML = Object.keys(h).map(function (k) {
+    const v = h[k];
+    if (v !== null && typeof v === 'object') return '';
+    const tag = KIND_CLASS[k.toUpperCase()] ? '<span class="tag ' + KIND_CLASS[k.toUpperCase()] + '">' +
+      esc(k) + '</span>' : esc(k);
+    return '<dt>' + tag + '</dt><dd style="text-align:left;">' + esc(v) + '</dd>';
+  }).filter(Boolean).join('');
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   PROJECTED — GET /benchmarks/projection
+   ══════════════════════════════════════════════════════════════════ */
+
+const SCALE_DEFAULTS = { cameras: 500, fps: 6, ocr: 3, latency: 2, headroom: 0.7, vehicles: 1200 };
+
+function intVal(id, dflt) {
+  const el = document.getElementById(id);
+  if (!el) return dflt;
+  const n = parseInt(el.value, 10);
+  return Number.isFinite(n) ? n : dflt;
+}
+
+function floatVal(id, dflt) {
+  const el = document.getElementById(id);
+  if (!el) return dflt;
+  const n = parseFloat(el.value);
+  return Number.isFinite(n) ? n : dflt;
+}
+
+function scaleParams(overrideCameras) {
+  return {
+    cameras: overrideCameras !== undefined ? overrideCameras : intVal('in-cameras', SCALE_DEFAULTS.cameras),
+    fps_per_camera: intVal('in-fps', SCALE_DEFAULTS.fps),
+    ocr_every: intVal('in-ocr', SCALE_DEFAULTS.ocr),
+    target_latency_s: floatVal('in-latency', SCALE_DEFAULTS.latency),
+    utilisation_headroom: floatVal('in-headroom', SCALE_DEFAULTS.headroom),
+    vehicles_per_camera_per_hour: intVal('in-vehicles', SCALE_DEFAULTS.vehicles)
+  };
+}
+
+/**
+ * `utilisation_headroom` is the parameter this API actually declares; `headroom`
+ * is sent alongside purely so a differently-named implementation still receives
+ * the value instead of silently falling back to its default.
+ */
+function projectionQuery(p) {
+  return '/benchmarks/projection' +
+    '?cameras=' + encodeURIComponent(p.cameras) +
+    '&fps_per_camera=' + encodeURIComponent(p.fps_per_camera) +
+    '&ocr_every=' + encodeURIComponent(p.ocr_every) +
+    '&target_latency_s=' + encodeURIComponent(p.target_latency_s) +
+    '&utilisation_headroom=' + encodeURIComponent(p.utilisation_headroom) +
+    '&headroom=' + encodeURIComponent(p.utilisation_headroom) +
+    '&vehicles_per_camera_per_hour=' + encodeURIComponent(p.vehicles_per_camera_per_hour);
+}
+
+let projTimer = null;
+let projSeq = 0;
+let projectionUnavailable = false;
+
+function syncScaleOutputs() {
+  setText('out-cameras', fmtInt(intVal('in-cameras', SCALE_DEFAULTS.cameras)));
+  setText('out-fps', fmtInt(intVal('in-fps', SCALE_DEFAULTS.fps)));
+  setText('out-ocr', fmtInt(intVal('in-ocr', SCALE_DEFAULTS.ocr)));
+  setText('out-latency', fmtNum(floatVal('in-latency', SCALE_DEFAULTS.latency), 1));
+  setText('out-headroom', fmtNum(floatVal('in-headroom', SCALE_DEFAULTS.headroom), 2));
+  setText('out-vehicles', fmtInt(intVal('in-vehicles', SCALE_DEFAULTS.vehicles)));
+}
+
+function scheduleProjection() {
+  syncScaleOutputs();
+  if (projTimer) clearTimeout(projTimer);
+  projTimer = setTimeout(function () { refreshProjection(false); }, 250);
+}
+
+function resetScaling() {
+  const set = function (id, v) { const el = document.getElementById(id); if (el) el.value = String(v); };
+  set('in-cameras', SCALE_DEFAULTS.cameras);
+  set('in-cameras-num', SCALE_DEFAULTS.cameras);
+  set('in-fps', SCALE_DEFAULTS.fps);
+  set('in-ocr', SCALE_DEFAULTS.ocr);
+  set('in-latency', SCALE_DEFAULTS.latency);
+  set('in-headroom', SCALE_DEFAULTS.headroom);
+  set('in-vehicles', SCALE_DEFAULTS.vehicles);
+  projectionUnavailable = false;
+  scheduleProjection();
+}
+
+function clearProjection(message, cls) {
+  ['proj-inference', 'proj-gpus', 'proj-resources', 'proj-data'].forEach(function (id) {
+    setHtml(id, '<div class="hint">' + message + '</div>');
+  });
+  setHtml('proj-latency', '<div class="hint">' + message + '</div>');
+  setHtml('cmp-body', '<tr><td colspan="4" class="muted">' + message + '</td></tr>');
+  setHtml('edge-body', '<tr><td colspan="3" class="muted">' + message + '</td></tr>');
+  ['central-pros', 'central-cons', 'edge-pros', 'edge-cons'].forEach(function (id) { setHtml(id, ''); });
+  setHtml('edge-reduction', '');
+  setHtml('edge-recommendation', '');
+  setHtml('edge-cost-note', '');
+  setHtml('assume-body', '<tr><td colspan="3" class="muted">' + message + '</td></tr>');
+  setHtml('gpu-warning', '');
+  document.getElementById('gpu-warning').className = 'notice assume hidden';
+}
+
+async function refreshProjection(force) {
+  if (projectionUnavailable && !force) return;
+  const seq = ++projSeq;
+  setText('proj-state', 'computing…');
+
+  const res = await apiFetch(projectionQuery(scaleParams()));
+  if (seq !== projSeq) return;   // superseded by a newer slider change
+
+  if (!res.ok) {
+    if (res.status === 404) projectionUnavailable = true;
+    setText('proj-state', 'unavailable');
+    showNotice('proj-notice', res.status === 404 ? 'warn' : 'err',
+      failNotice('GET /benchmarks/projection', res) +
+      '<br/>No projected figures are shown rather than being guessed client-side: these numbers are only ' +
+      'worth anything if their provenance is exact.');
+    clearProjection('Projection unavailable.');
+    showNotice('edge-notice', 'warn',
+      'Edge-vs-central figures come from the same projection endpoint, which is unavailable. ' +
+      'The qualitative comparison beside the table still holds.');
+    return;
+  }
+
+  hideNotice('proj-notice');
+  hideNotice('edge-notice');
+  setText('proj-state', 'updated ' + new Date().toLocaleTimeString('en-GB', { hour12: false }));
+
+  const proj = getPath(res.body, 'projection') || res.body;
+  renderProjection(proj);
+  renderEdge(proj);
+  renderAssumptions(proj);
+  refreshComparison();
+
+  const wrap = document.getElementById('proj-raw-wrap');
+  if (wrap) {
+    wrap.style.display = '';
+    const raw = document.getElementById('proj-raw');
+    try { raw.textContent = JSON.stringify(res.body, null, 2); }
+    catch (_e) { raw.textContent = '(unserialisable)'; }
+  }
+}
+
+function renderProjection(p) {
+  if (!p || typeof p !== 'object') { clearProjection('Projection response was empty.'); return; }
+
+  const inf = getPath(p, 'inference') || {};
+  const gpus = getPath(inf, 'gpus') || getPath(p, 'gpus') || {};
+  const cr = getPath(p, 'compute_resources') || {};
+  const dt = getPath(p, 'data_tier') || {};
+  const st = getPath(dt, 'storage') || {};
+  const lat = getPath(p, 'latency') || {};
+
+  /* inference tier */
+  renderTiles('proj-inference', [
+    kpiTile('Detection throughput', metric(inf, ['required_detection_throughput']), fmtCount, 'amber'),
+    kpiTile('OCR throughput', metric(inf, ['required_ocr_throughput']), fmtCount, 'purple'),
+    kpiTile('Cost / analysed frame', metric(inf, ['cost_per_analysed_frame']), function (v) { return fmtMs(v, 2); }, '', true),
+    kpiTile('Per-worker capacity', metric(inf, ['per_worker_capacity']), function (v) { return fmtNum(v, 2); }, ''),
+    kpiTile('Workers (measured class)', metric(inf, ['workers_of_measured_class']), fmtInt, 'cyan'),
+    kpiTile('Cameras / worker', metric(inf, ['cameras_per_worker']), function (v) { return fmtNum(v, 2); }, '')
+  ]);
+
+  /* accelerators — assumption-heavy, flagged loudly */
+  renderTiles('proj-gpus', [
+    kpiTile('GPUs required', metric(gpus, ['gpus_required']), fmtInt, 'purple'),
+    kpiTile('Cameras / GPU', metric(gpus, ['cameras_per_gpu']), function (v) { return fmtNum(v, 2); }, ''),
+    kpiTile('Assumed speedup', metric(gpus, ['assumed_speedup']),
+            function (v) { return fmtNum(v, 1) + '× vs measured device'; }, 'amber', true)
+  ]);
+  const warn = scalar(gpus, ['assumption_warning']);
+  const gpuClass = scalar(gpus, ['assumed_gpu_class', 'gpu_class']);
+  const gEl = document.getElementById('gpu-warning');
+  if (warn || gpuClass) {
+    gEl.className = 'notice assume';
+    gEl.innerHTML = (gpuClass ? '<strong>Assumed device: ' + esc(gpuClass) + '.</strong> ' : '') +
+      (warn ? esc(warn) : 'This device class was not benchmarked here.');
+  } else {
+    gEl.className = 'notice assume hidden';
+    gEl.innerHTML = '';
+  }
+
+  /* host resources */
+  renderTiles('proj-resources', [
+    kpiTile('CPU cores', metric(cr, ['cpu_cores']), fmtInt, 'cyan'),
+    kpiTile('RAM', metric(cr, ['ram_gb']), fmtGB, '', true)
+  ]);
+
+  /* data tier */
+  renderTiles('proj-data', [
+    kpiTile('Events / s', metric(dt, ['events_per_second']), function (v) { return fmtNum(v, 1); }, 'green'),
+    kpiTile('Events / day', metric(dt, ['events_per_day']), fmtCount, 'green'),
+    kpiTile('Ingest capacity (measured)', metric(dt, ['measured_ingest_capacity']), fmtCount, 'cyan'),
+    kpiTile('Ingest headroom', metric(dt, ['ingest_headroom_ratio']), function (v) { return fmtNum(v, 2); },
+      (numOf(metric(dt, ['ingest_headroom_ratio'])) || 0) >= 1 ? 'green' : 'red'),
+    kpiTile('Ingest processes', metric(dt, ['ingest_processes_needed']), fmtInt, ''),
+    kpiTile('Bytes / event (measured)', metric(st, ['bytes_per_event']), fmtBytes, 'cyan', true),
+    kpiTile('Storage / day', metric(st, ['per_day_gb']), fmtGB, 'amber', true),
+    kpiTile('Storage / month', metric(st, ['per_month_gb']), fmtGB, 'amber', true),
+    kpiTile('Storage at retention', metric(st, ['at_retention_gb']), fmtGB, 'amber', true)
+  ]);
+
+  /* latency */
+  const budget = Number(scalar(lat, ['budget_s']));
+  const measuredMs = metric(lat, ['measured_pipeline_ms']);
+  const fits = deepFind(lat, 'fits_budget');
+  const queue = metric(lat, ['max_queue_depth_frames']);
+  const latNote = scalar(lat, ['note']);
+  const fitsHtml = (fits === true)
+    ? '<span class="green">fits the budget</span>'
+    : (fits === false ? '<span class="red">does NOT fit the budget</span>' : '<span class="muted">' + DASH + '</span>');
+  setHtml('proj-latency',
+    '<dl class="kv">' +
+      '<dt>budget</dt><dd>' + (Number.isFinite(budget) ? fmtNum(budget, 2) + ' s' : DASH) + '</dd>' +
+      '<dt>measured single-pass cost ' + kindTag(measuredMs && measuredMs.kind, true) + '</dt>' +
+        '<dd>' + (numOf(measuredMs) === undefined ? DASH : fmtMs(numOf(measuredMs), 1)) + '</dd>' +
+      '<dt>verdict</dt><dd>' + fitsHtml + '</dd>' +
+      '<dt>max worker backlog ' + kindTag(queue && queue.kind, true) + '</dt>' +
+        '<dd>' + (numOf(queue) === undefined ? DASH : fmtInt(numOf(queue)) + ' frames') + '</dd>' +
+    '</dl>' +
+    (latNote ? '<div class="notice warn" style="margin-top:8px; margin-bottom:0;"><strong>Read this ' +
+      'before quoting the latency figure:</strong> ' + esc(latNote) + '</div>' : ''));
+}
+
+function renderAssumptions(p) {
+  const a = getPath(p, 'assumptions') || {};
+  const why = getPath(p, 'assumption_rationale') || {};
+  const keys = Object.keys(a).filter(function (k) {
+    return a[k] === null || typeof a[k] !== 'object';
+  });
+  if (keys.length === 0) {
+    setHtml('assume-body',
+      '<tr><td colspan="3" class="muted">The projection returned no explicit assumptions block. ' +
+      'The standing caveats in this panel still apply.</td></tr>');
+    return;
+  }
+  setHtml('assume-body', keys.map(function (k) {
+    const v = a[k];
+    const rationale = why[k];
+    return '<tr>' +
+      '<td class="muted">' + esc(k.replace(/_/g, ' ')) + '</td>' +
+      '<td class="num purple">' + (v === null ? DASH : esc(String(v))) + '</td>' +
+      '<td class="hint">' + (rationale ? esc(rationale) : '<span class="muted">' + DASH + '</span>') + '</td>' +
+      '</tr>';
+  }).join(''));
+}
+
+function renderEdge(p) {
+  const na = getPath(p, 'network_and_architecture');
+  const body = document.getElementById('edge-body');
+  if (!na || typeof na !== 'object') {
+    showNotice('edge-notice', 'info',
+      'The projection carried no <code>network_and_architecture</code> block, so only the qualitative ' +
+      'comparison is shown.');
+    body.innerHTML = '<tr><td colspan="3" class="muted">No numeric comparison returned.</td></tr>';
+    return;
+  }
+  hideNotice('edge-notice');
+
+  const central = getPath(na, 'central_architecture') || {};
+  const edge = getPath(na, 'edge_architecture') || {};
+
+  const row = function (label, cm, em, fmt) {
+    const cv = numOf(cm);
+    const ev = numOf(em);
+    if (cv === undefined && ev === undefined) return '';
+    const note = [noteOf(cm), noteOf(em)].filter(Boolean).join('\n\n');
+    return '<tr' + (note ? ' title="' + esc(note) + '"' : '') + '>' +
+      '<td class="muted">' + esc(label) + ' ' + kindTag((cm && cm.kind) || (em && em.kind), true) + '</td>' +
+      '<td class="num amber">' + (cv === undefined ? DASH : fmt(cv)) + '</td>' +
+      '<td class="num green">' + (ev === undefined ? DASH : fmt(ev)) + '</td>' +
+      '</tr>';
+  };
+
+  // uplink_gbps is deliberately not shown: fmtMbps already promotes to Gbps, and
+  // a second row of the same quantity in different units reads like new evidence.
+  const rows = [
+    row('aggregate uplink', metric(central, ['uplink']), metric(edge, ['uplink']), fmtMbps),
+    row('inference nodes', metric(central, ['edge_nodes']), metric(edge, ['edge_nodes']), fmtInt)
+  ].filter(Boolean);
+
+  body.innerHTML = rows.length ? rows.join('')
+    : '<tr><td colspan="3" class="muted">No scalar metrics in the comparison block.</td></tr>';
+
+  const reduction = metric(na, ['bandwidth_reduction_factor']);
+  setHtml('edge-reduction', numOf(reduction) === undefined ? ''
+    : '<div class="notice ok" style="margin-bottom:0;" title="' + esc(noteOf(reduction)) + '">' +
+      '<strong>Edge needs ' + fmtCount(numOf(reduction)) + '× less uplink than central.</strong> ' +
+      kindTag(reduction.kind) + ' ' + esc(reduction.unit || '') + '</div>');
+
+  const list = function (id, arr, cls) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.className = 'method ' + cls;
+    el.innerHTML = Array.isArray(arr)
+      ? arr.map(function (x) { return '<li>' + esc(typeof x === 'object' ? JSON.stringify(x) : x) + '</li>'; }).join('')
+      : '';
+  };
+  list('central-pros', getPath(central, 'pros'), 'pro');
+  list('central-cons', getPath(central, 'cons'), 'con');
+  list('edge-pros', getPath(edge, 'pros'), 'pro');
+  list('edge-cons', getPath(edge, 'cons'), 'con');
+
+  const rec = scalar(na, ['recommendation']);
+  setHtml('edge-recommendation', rec
+    ? '<div class="notice info" style="margin-bottom:0;"><strong>Recommendation from the projection:</strong> ' +
+      esc(rec) + '</div>' : '');
+  const costNote = scalar(na, ['cost_note']);
+  const extra = scalar(central, ['extra_central_cost']);
+  const bits = [];
+  if (extra) bits.push('<strong>Extra central cost:</strong> ' + esc(extra));
+  if (costNote) bits.push(esc(costNote));
+  setHtml('edge-cost-note', bits.length
+    ? '<div class="notice assume" style="margin-bottom:0;">' + bits.join('<br/><br/>') + '</div>' : '');
+}
+
+/* ── side-by-side comparison via /projection/scenarios ─────────── */
+
+const CMP_ROWS = [
+  ['Detection throughput', 'inference', 'required_detection_throughput', fmtCount],
+  ['OCR throughput', 'inference', 'required_ocr_throughput', fmtCount],
+  ['Workers (measured class)', 'inference', 'workers_of_measured_class', fmtInt],
+  ['GPUs (assumed class)', 'inference', 'gpus_required', fmtInt],
+  ['CPU cores', 'compute_resources', 'cpu_cores', fmtInt],
+  ['RAM', 'compute_resources', 'ram_gb', fmtGB],
+  ['Events / s', 'data_tier', 'events_per_second', function (v) { return fmtNum(v, 1); }],
+  ['Events / day', 'data_tier', 'events_per_day', fmtCount],
+  ['Storage / day', 'data_tier', 'per_day_gb', fmtGB],
+  ['Central uplink', 'network_and_architecture', 'uplink_gbps', function (v) { return fmtNum(v, 2) + ' Gbps'; }]
+];
+
+const CMP_CAMERAS = [200, 500, 2000];
+let cmpSeq = 0;
+
+async function refreshComparison() {
+  const seq = ++cmpSeq;
+  const body = document.getElementById('cmp-body');
+  const p = scaleParams();
+  const url = '/benchmarks/projection/scenarios' +
+    '?camera_counts=' + encodeURIComponent(CMP_CAMERAS.join(',')) +
+    '&fps_per_camera=' + encodeURIComponent(p.fps_per_camera) +
+    '&ocr_every=' + encodeURIComponent(p.ocr_every) +
+    '&utilisation_headroom=' + encodeURIComponent(p.utilisation_headroom);
+
+  const res = await apiFetch(url);
+  if (seq !== cmpSeq) return;
+
+  let scenarios = res.ok ? getPath(res.body, 'scenarios') : null;
+
+  if (!scenarios) {
+    // Fall back to three individual projection calls.
+    const results = await Promise.all(CMP_CAMERAS.map(function (c) {
+      return apiFetch(projectionQuery(scaleParams(c)));
+    }));
+    if (seq !== cmpSeq) return;
+    if (!results.every(function (r) { return r.ok; })) {
+      body.innerHTML = '<tr><td colspan="4" class="muted">Could not compute the comparison — ' +
+        esc((res.error || 'projection endpoint error')) + '</td></tr>';
+      return;
+    }
+    scenarios = {};
+    CMP_CAMERAS.forEach(function (c, i) {
+      scenarios[String(c)] = getPath(results[i].body, 'projection') || results[i].body;
+    });
+  }
+
+  const cols = CMP_CAMERAS.map(function (c) { return scenarios[String(c)] || {}; });
+  CMP_CAMERAS.forEach(function (c, i) { setText('cmp-h' + (i + 1), fmtInt(c) + ' CAMS'); });
+
+  body.innerHTML = CMP_ROWS.map(function (row) {
+    const cells = cols.map(function (proj) {
+      const scope = getPath(proj, row[1]) || proj;
+      const m = metric(scope, [row[2]]);
+      const v = numOf(m);
+      return '<td class="num"' + (noteOf(m) ? ' title="' + esc(noteOf(m)) + '"' : '') + '>' +
+        (v === undefined ? DASH : row[3](v)) + '</td>';
+    }).join('');
+    return '<tr><td class="muted">' + esc(row[0]) + '</td>' + cells + '</tr>';
+  }).join('') +
+  '<tr><td colspan="4" class="hint" style="padding-top:8px;">All three columns share the current fps / ' +
+  'ocr_every / headroom settings and differ only in camera count. ' +
+  '<span class="tag projected">projected</span></td></tr>';
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   POST /benchmarks/run  +  progress
+   ══════════════════════════════════════════════════════════════════ */
+
+let runPollTimer = null;
+
+async function runBenchmarks() {
+  const btn = document.getElementById('rerun-btn');
+  if (btn) btn.disabled = true;
+  showNotice('run-notice', 'info',
+    'Starting <code>POST /benchmarks/run</code> … a full suite takes roughly a minute. ' +
+    'Progress appears here.');
+  setText('bench-indicator', '● BENCHMARK RUN STARTING');
+
+  const res = await apiFetch('/benchmarks/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}'
+  });
+  if (!res.ok) {
+    if (btn) btn.disabled = false;
+    setText('bench-indicator', '● BENCHMARKS');
+    showNotice('run-notice', res.status === 404 ? 'warn' : 'err',
+      failNotice('POST /benchmarks/run', res) +
+      '<br/>You can always run the suite from a shell instead — the command is at the bottom of this panel.');
+    return;
+  }
+
+  const runId = scalar(res.body, ['run_id', 'id', 'runId', 'job_id']);
+  if (!runId) {
+    if (btn) btn.disabled = false;
+    showNotice('run-notice', 'warn',
+      '<strong>Run accepted but no run id came back</strong>, so progress cannot be followed. ' +
+      'Reload in a minute to pick up fresh results.');
+    return;
+  }
+
+  const note = scalar(res.body, ['note']);
+  showNotice('run-notice', 'ok', '<strong>Run ' + esc(String(runId)) + ' started.</strong> ' +
+    (note ? esc(note) : '') + ' Polling progress…');
+  setText('bench-indicator', '● BENCHMARK RUN ' + runId);
+  pollRun(String(runId));
+}
+
+function pollRun(runId) {
+  if (runPollTimer) clearInterval(runPollTimer);
+  let ticks = 0;
+  runPollTimer = setInterval(async function () {
+    ticks++;
+    const res = await apiFetch('/benchmarks/run/' + encodeURIComponent(runId));
+
+    const finish = function (cls, html) {
+      clearInterval(runPollTimer);
+      runPollTimer = null;
+      const btn = document.getElementById('rerun-btn');
+      if (btn) btn.disabled = false;
+      setText('bench-indicator', '● BENCHMARKS');
+      showNotice('run-notice', cls, html);
+    };
+
+    if (!res.ok) {
+      if (res.status === 404 || res.status === 0 || ticks > 300) {
+        finish('warn', 'Lost track of run ' + esc(runId) + ' (' +
+          esc(res.error || 'HTTP ' + res.status) + '). It may still be running server-side — ' +
+          'reload in a minute to pick up results.');
+      }
+      return;
+    }
+
+    const b = res.body || {};
+    const status = String(scalar(b, ['status', 'state']) || 'RUNNING').toUpperCase();
+    const step = scalar(b, ['current_step', 'stage', 'suite', 'step', 'message']);
+    const log = Array.isArray(b.log) ? b.log : [];
+    const last = log.length ? log[log.length - 1] : null;
+
+    if (status === 'COMPLETED' || status === 'DONE' || status === 'COMPLETE' || status === 'FINISHED') {
+      finish('ok', '<strong>Benchmark run finished in ' + ticks + 's.</strong> Reloading measured results…');
+      loadAll();
+      return;
+    }
+    if (status === 'FAILED' || status === 'ERROR') {
+      const msg = scalar(b, ['error', 'message', 'detail']);
+      finish('err', '<strong>Benchmark run failed.</strong> ' +
+        (msg ? esc(String(msg).slice(0, 600)) : 'No detail returned.'));
+      return;
+    }
+
+    const bits = ['status <span class="cyan">' + esc(status) + '</span>'];
+    if (step) bits.push('step <strong>' + esc(step) + '</strong>');
+    if (last && last.message) bits.push(esc(String(last.message)));
+    bits.push(ticks + 's elapsed');
+    showNotice('run-notice', 'info', 'Run <strong>' + esc(runId) + '</strong> — ' + bits.join(' · '));
+  }, 1000);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Boot
+   ══════════════════════════════════════════════════════════════════ */
+
+async function probeFeatures() {
+  const el = document.getElementById('bench-api-status');
+  const res = await apiFetch('/');
+  if (!res.ok) {
+    el.innerHTML = '<span class="status-pill offline"></span><span class="red">down</span>';
+    showNotice('global-notice', 'err',
+      '<strong>Backend unreachable at <code>' + esc(API_BASE) + '</code>.</strong> ' + esc(res.error || ''));
+    return;
+  }
+  const bm = getPath(res.body, 'features.benchmarks');
+  if (bm === 'ok') {
+    el.innerHTML = '<span class="status-pill online"></span><span class="green">enabled</span>';
+    hideNotice('global-notice');
+  } else if (bm === undefined) {
+    el.innerHTML = '<span class="status-pill offline"></span><span class="amber">unknown</span>';
+    hideNotice('global-notice');
+  } else {
+    el.innerHTML = '<span class="status-pill offline"></span><span class="amber">disabled</span>';
+    showNotice('global-notice', 'warn',
+      '<strong>Benchmark router is DISABLED on this server.</strong> Reported reason: <code>' +
+      esc(String(bm)) + '</code>. The panels below explain why they are empty rather than filling in ' +
+      'with placeholder numbers.');
+  }
+}
+
+function loadAll() {
+  loadBenchmarks();
+  loadHardwareLive();
+  projectionUnavailable = false;
+  refreshProjection(true);
+}
+
+function boot() {
+  const range = document.getElementById('in-cameras');
+  const numBox = document.getElementById('in-cameras-num');
+  if (range && numBox) {
+    range.addEventListener('input', function () { numBox.value = range.value; scheduleProjection(); });
+    numBox.addEventListener('input', function () {
+      let n = parseInt(numBox.value, 10);
+      if (!Number.isFinite(n)) return;
+      n = Math.max(1, Math.min(2000, n));
+      range.value = String(n);
+      scheduleProjection();
+    });
+  }
+  ['in-fps', 'in-ocr', 'in-latency', 'in-headroom', 'in-vehicles'].forEach(function (id) {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', scheduleProjection);
+  });
+
+  syncScaleOutputs();
+  probeFeatures();
+  loadAll();
+}
+
+window.addEventListener('error', function (e) {
+  const el = document.getElementById('global-notice');
+  if (el && e && e.message) {
+    el.className = 'notice err';
+    el.innerHTML = '<strong>Client-side error:</strong> ' + esc(e.message);
+  }
+});
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+else boot();
+</script>
+</body>
+</html>

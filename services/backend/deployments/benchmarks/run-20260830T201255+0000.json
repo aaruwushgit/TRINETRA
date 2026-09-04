@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "measured_at": "2026-08-30T20:12:55+00:00",
+  "suites_requested": [
+    "hardware"
+  ],
+  "suites_completed": [
+    "hardware"
+  ],
+  "errors": {
+    "projections": "No measured plate-detection time available. Run the 'anpr' suite (scripts/run_benchmarks.py --suite anpr) before asking for a projection."
+  },
+  "measured": {},
+  "how_to_read_this": {
+    "MEASURED": "timed on the machine named in `hardware`, reproducible by re-running scripts/run_benchmarks.py",
+    "PROJECTED": "arithmetic on MEASURED values plus the assumptions listed in each figure's `depends_on`",
+    "DERIVED": "arithmetic on MEASURED values only, no external assumptions",
+    "rule": "No number in this file was typed in by hand. If a suite did not run, its section holds an error, not a placeholder."
+  },
+  "hardware": {
+    "measured_at": "2026-08-30T20:12:55+00:00",
+    "os": {
+      "system": "Darwin",
+      "release": "25.5.0",
+      "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+      "python": "3.13.9"
+    },
+    "cpu": {
+      "model": "Apple M3",
+      "machine_model": "Mac15,12",
+      "arch": "arm64",
+      "physical_cores": 8,
+      "logical_cores": 8,
+      "performance_cores": 4,
+      "efficiency_cores": 4
+    },
+    "memory": {
+      "total_gb": 17.18,
+      "available_gb": 4.81
+    },
+    "accelerator": {
+      "cuda_available": false,
+      "cuda_device_count": 0,
+      "cuda_device_name": null,
+      "mps_built": true,
+      "mps_usable": true,
+      "selected_device": "mps",
+      "note": "Apple MPS (unified-memory GPU) is not comparable to a discrete datacentre GPU. Any GPU-count projection below is an assumption, not a measurement on this machine."
+    },
+    "runtime": {
+      "torch": "2.13.0",
+      "ultralytics": "8.4.134",
+      "cv2": "4.10.0",
+      "paddleocr": "3.7.0",
+      "fastapi": "0.141.1",
+      "sqlalchemy": "2.0.52"
+    },
+    "compute_monitor": {
+      "available": true,
+      "module": "/Users/aarushsharma/Documents/SIH/vehicle-intelligence-backend/backend/services/compute_monitor.py",
+      "detail": {
+        "device": "mps",
+        "device_name": "Apple M3",
+        "cpu_count": 8,
+        "cpu_count_logical": 8,
+        "total_ram_mb": 16384.0,
+        "machine": "arm64",
+        "platform": "Darwin 25.5.0",
+        "python_version": "3.13.9",
+        "torch_version": "2.13.0",
+        "cv2_version": "4.10.0",
+        "cuda_available": false,
+        "mps_available": true
+      }
+    }
+  },
+  "baseline": {
+    "detection_ms_p50": null,
+    "detection_ms_p95": null,
+    "ocr_ms_p50": null,
+    "ocr_ms_p95": null,
+    "decode_ms_p50": null,
+    "cpu_core_seconds_per_frame": null,
+    "cpu_core_seconds_per_crop": null,
+    "worker_rss_mb": null,
+    "device_measured": "mps",
+    "ingest_events_per_s_single": null,
+    "ingest_latency_p95_ms": null,
+    "ingest_events_per_s_bulk_best": null,
+    "bytes_per_event": null,
+    "machine": "Apple M3",
+    "machine_model": "Mac15,12",
+    "logical_cores": 8,
+    "host_ram_gb": 17.18,
+    "measured_at": "2026-08-30T20:12:55+00:00"
+  },
+  "projections": {},
+  "duration_seconds": 0.0
+}

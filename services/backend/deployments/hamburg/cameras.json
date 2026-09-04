@@ -1,0 +1,20 @@
+[
+  {"camera_id":"HH_001","hamburg_id":1,"name":"A1 AK Hamburg-Süd","location":"A1 AK Hamburg-Süd","latitude":53.50293056683961,"longitude":10.038340740931769,"deployment":"hamburg","direction":"NORTH"},
+  {"camera_id":"HH_002","hamburg_id":2,"name":"A1 AS Hamburg-Billstedt","location":"A1 AS Hamburg-Billstedt","latitude":53.527307410917324,"longitude":10.133311431155056,"deployment":"hamburg","direction":"NORTH"},
+  {"camera_id":"HH_003","hamburg_id":3,"name":"A1 AK Hamburg-Ost","location":"A1 AK Hamburg-Ost","latitude":53.56293510563464,"longitude":10.159498793552206,"deployment":"hamburg","direction":"NORTH"},
+  {"camera_id":"HH_006","hamburg_id":6,"name":"Hafen Köhlbrandbrücke","location":"Hafen Köhlbrandbrücke","latitude":53.52180617359441,"longitude":9.938222953817002,"deployment":"hamburg","direction":"SOUTH"},
+  {"camera_id":"HH_009","hamburg_id":9,"name":"A7 AS Schnelsen","location":"A7 AS Schnelsen","latitude":53.63799999814264,"longitude":9.924130006105562,"deployment":"hamburg","direction":"SOUTH"},
+  {"camera_id":"HH_010","hamburg_id":10,"name":"A7 AS Volkspark","location":"A7 AS Volkspark","latitude":53.582439995389954,"longitude":9.915700006710697,"deployment":"hamburg","direction":"SOUTH"},
+  {"camera_id":"HH_011","hamburg_id":11,"name":"A7 AS Bahrenfeld","location":"A7 AS Bahrenfeld","latitude":53.565079997226185,"longitude":9.899570000975956,"deployment":"hamburg","direction":"SOUTH"},
+  {"camera_id":"HH_012","hamburg_id":12,"name":"A7 AS Heimfeld","location":"A7 AS Heimfeld","latitude":53.47051999921982,"longitude":9.920659992864964,"deployment":"hamburg","direction":"NORTH"},
+  {"camera_id":"HH_013","hamburg_id":13,"name":"Ankelmannsplatz / Wallstraße","location":"Ankelmannsplatz / Wallstraße","latitude":53.55162999899318,"longitude":10.025930004439083,"deployment":"hamburg","direction":"EAST"},
+  {"camera_id":"HH_014","hamburg_id":14,"name":"Ludwig-Erhard-Straße","location":"Ludwig-Erhard-Straße","latitude":53.549399998043405,"longitude":9.97820000254127,"deployment":"hamburg","direction":"EAST"},
+  {"camera_id":"HH_015","hamburg_id":15,"name":"A7 AD Hamburg-Nordwest","location":"A7 AD Hamburg-Nordwest","latitude":53.6167699967011,"longitude":9.911429997014231,"deployment":"hamburg","direction":"SOUTH"},
+  {"camera_id":"HH_016","hamburg_id":16,"name":"Kieler Straße / Sportplatzring","location":"Kieler Straße / Sportplatzring","latitude":53.592290002734984,"longitude":9.928729998839504,"deployment":"hamburg","direction":"EAST"},
+  {"camera_id":"HH_017","hamburg_id":17,"name":"Wilhelmsburger Reichsstraße","location":"Wilhelmsburger Reichsstraße","latitude":53.49911999700074,"longitude":9.99777000295142,"deployment":"hamburg","direction":"NORTH"},
+  {"camera_id":"HH_018","hamburg_id":18,"name":"Willy-Brandt-Straße","location":"Willy-Brandt-Straße","latitude":53.5475600019182,"longitude":9.993729998319145,"deployment":"hamburg","direction":"EAST"},
+  {"camera_id":"HH_019","hamburg_id":19,"name":"Altenwerder Damm / Köhlbrandbrücke","location":"Altenwerder Damm / Köhlbrandbrücke","latitude":53.520921225956144,"longitude":9.924140185944518,"deployment":"hamburg","direction":"WEST"},
+  {"camera_id":"HH_020","hamburg_id":20,"name":"BAB 255 Elbbrücken","location":"BAB 255 Elbbrücken","latitude":53.53013366540037,"longitude":10.024126266721758,"deployment":"hamburg","direction":"EAST"},
+  {"camera_id":"HH_021","hamburg_id":21,"name":"Finkenwerder Ring","location":"Finkenwerder Ring","latitude":53.51376712748064,"longitude":9.911758639148221,"deployment":"hamburg","direction":"NORTH"},
+  {"camera_id":"HH_022","hamburg_id":22,"name":"Rossdamm / Köhlbrandbrücke","location":"Rossdamm / Köhlbrandbrücke","latitude":53.51670580073524,"longitude":9.969312382474854,"deployment":"hamburg","direction":"WEST"}
+]

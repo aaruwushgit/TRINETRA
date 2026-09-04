@@ -1,0 +1,42 @@
+camera_id,name,location,latitude,longitude,road,direction,speed_limit_kmh,camera_type
+MH_WEH_BANDRA,Western Express Hwy x Bandra,"Western Express Highway, Mumbai",19.0607,72.8494,Western Express Highway,NORTH,80.0,ANPR
+MH_WEH_KHAR,Western Express Hwy x Khar Subway,"Western Express Highway, Mumbai",19.0728,72.8478,Western Express Highway,NORTH,80.0,ANPR
+MH_WEH_SANTACRUZ,Western Express Hwy x Santacruz,"Western Express Highway, Mumbai",19.081,72.842,Western Express Highway,NORTH,80.0,ANPR
+MH_WEH_VILEPARLE,Western Express Hwy x Vile Parle,"Western Express Highway, Mumbai",19.099,72.846,Western Express Highway,NORTH,80.0,ANPR
+MH_WEH_ANDHERI,Western Express Hwy x Andheri E,"Western Express Highway, Mumbai",19.118,72.85,Western Express Highway,NORTH,80.0,ANPR
+MH_WEH_JVLR,Western Express Hwy x JVLR,"Western Express Highway, Mumbai",19.129,72.857,Western Express Highway,NORTH,80.0,ANPR
+MH_WEH_GOREGAON,Western Express Hwy x Goregaon E,"Western Express Highway, Mumbai",19.164,72.858,Western Express Highway,NORTH,80.0,ANPR
+MH_WEH_BORIVALI,Western Express Hwy x Borivali E,"Western Express Highway, Mumbai",19.229,72.857,Western Express Highway,NORTH,80.0,ANPR
+MH_WEH_DAHISAR,Western Express Hwy x Dahisar Check,"Western Express Highway, Mumbai",19.25,72.859,Western Express Highway,NORTH,80.0,ANPR
+MH_EEH_SION,Eastern Express Hwy x Sion,"Eastern Express Highway, Mumbai",19.039,72.862,Eastern Express Highway,NORTH,80.0,ANPR
+MH_EEH_CHEMBUR,Eastern Express Hwy x Chembur,"Eastern Express Highway, Mumbai",19.062,72.899,Eastern Express Highway,NORTH,80.0,ANPR
+MH_EEH_GHATKOPAR,Eastern Express Hwy x Ghatkopar,"Eastern Express Highway, Mumbai",19.086,72.908,Eastern Express Highway,NORTH,80.0,ANPR
+MH_EEH_VIKHROLI,Eastern Express Hwy x Vikhroli,"Eastern Express Highway, Mumbai",19.11,72.925,Eastern Express Highway,NORTH,80.0,ANPR
+MH_EEH_KANJURMARG,Eastern Express Hwy x Kanjurmarg,"Eastern Express Highway, Mumbai",19.129,72.936,Eastern Express Highway,NORTH,80.0,ANPR
+MH_EEH_MULUND,Eastern Express Hwy x Mulund Check,"Eastern Express Highway, Mumbai",19.172,72.956,Eastern Express Highway,NORTH,80.0,ANPR
+MH_EEH_AIROLI,Airoli Bridge Toll Plaza,"Airoli Bridge, Mumbai",19.158,72.998,Airoli Bridge,NORTH,80.0,ANPR
+MH_SL_WORLI,Bandra-Worli Sea Link (Worli end),"Bandra-Worli Sea Link, Mumbai",19.008,72.818,Bandra-Worli Sea Link,NORTH,80.0,ANPR
+MH_SL_MID,Bandra-Worli Sea Link (mid-span),"Bandra-Worli Sea Link, Mumbai",19.028,72.818,Bandra-Worli Sea Link,NORTH,80.0,ANPR
+MH_SL_BANDRA,Bandra-Worli Sea Link (Bandra end),"Bandra-Worli Sea Link, Mumbai",19.043,72.82,Bandra-Worli Sea Link,NORTH,80.0,ANPR
+MH_MAHIM_CSWY,Mahim Causeway,"Mahim Causeway, Mumbai",19.04,72.84,Mahim Causeway,NORTH,50.0,ANPR
+MH_SV_MAHIM,SV Road x Mahim,"Swami Vivekanand Road, Mumbai",19.041,72.842,Swami Vivekanand Road,NORTH,50.0,ANPR
+MH_SV_BANDRA,SV Road x Bandra Talao,"Swami Vivekanand Road, Mumbai",19.055,72.84,Swami Vivekanand Road,NORTH,50.0,ANPR
+MH_SV_KHAR,SV Road x Khar Danda,"Swami Vivekanand Road, Mumbai",19.071,72.833,Swami Vivekanand Road,NORTH,50.0,ANPR
+MH_SV_SANTACRUZ,SV Road x Santacruz W,"Swami Vivekanand Road, Mumbai",19.082,72.839,Swami Vivekanand Road,NORTH,50.0,ANPR
+MH_SV_ANDHERI,SV Road x Andheri W,"Swami Vivekanand Road, Mumbai",19.119,72.842,Swami Vivekanand Road,NORTH,50.0,ANPR
+MH_SV_JOGESHWARI,SV Road x Jogeshwari W,"Swami Vivekanand Road, Mumbai",19.136,72.845,Swami Vivekanand Road,NORTH,50.0,ANPR
+MH_SV_MALAD,SV Road x Malad W,"Swami Vivekanand Road, Mumbai",19.187,72.84,Swami Vivekanand Road,NORTH,50.0,ANPR
+MH_LBS_SION,LBS Marg x Sion Circle,"LBS Marg, Mumbai",19.04,72.865,LBS Marg,NORTH,50.0,ANPR
+MH_LBS_KURLA,LBS Marg x Kurla,"LBS Marg, Mumbai",19.07,72.879,LBS Marg,NORTH,50.0,ANPR
+MH_LBS_GHATKOPAR,LBS Marg x Ghatkopar W,"LBS Marg, Mumbai",19.087,72.908,LBS Marg,NORTH,50.0,ANPR
+MH_LBS_BHANDUP,LBS Marg x Bhandup,"LBS Marg, Mumbai",19.144,72.937,LBS Marg,NORTH,50.0,ANPR
+MH_LBS_MULUND,LBS Marg x Mulund W,"LBS Marg, Mumbai",19.172,72.949,LBS Marg,NORTH,50.0,ANPR
+MH_WORLI_NAKA,Worli Naka Junction,"Annie Besant Road, Mumbai",19.0,72.818,Annie Besant Road,SOUTH,50.0,ANPR
+MH_HAJIALI,Haji Ali Junction,"Lala Lajpatrai Marg, Mumbai",18.98,72.81,Lala Lajpatrai Marg,SOUTH,50.0,ANPR
+MH_PEDDAR,Peddar Road x Kemps Corner,"Peddar Road, Mumbai",18.966,72.808,Peddar Road,SOUTH,50.0,ANPR
+MH_MARINE,Marine Drive x Charni Road,"Netaji Subhash Marg, Mumbai",18.95,72.82,Netaji Subhash Marg,SOUTH,50.0,ANPR
+MH_CST,CST x DN Road,"Dr DN Road, Mumbai",18.94,72.835,Dr DN Road,SOUTH,40.0,ANPR
+MH_COLABA,Colaba Causeway x Regal,"Shahid Bhagat Singh Rd, Mumbai",18.922,72.832,Shahid Bhagat Singh Rd,SOUTH,40.0,ANPR
+MH_SP_CHEMBUR,Sion-Panvel Hwy x Chembur,"Sion-Panvel Highway, Mumbai",19.05,72.9,Sion-Panvel Highway,EAST,80.0,ANPR
+MH_SP_MANKHURD,Sion-Panvel Hwy x Mankhurd,"Sion-Panvel Highway, Mumbai",19.048,72.93,Sion-Panvel Highway,EAST,80.0,ANPR
+MH_SP_VASHI,Vashi Bridge Toll Plaza,"Sion-Panvel Highway, Mumbai",19.068,72.999,Sion-Panvel Highway,EAST,80.0,ANPR

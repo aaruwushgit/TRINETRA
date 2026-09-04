@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Traffic Intelligence Command Center</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg-body: #f1f5f9;
+            --bg-sidebar: #ffffff;
+            --card-bg: #ffffff;
+            --navbar-bg: #ffffff;
+            --accent-blue: #0284c7;
+            --accent-emerald: #059669;
+            --accent-rose: #dc2626;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --border-color: #e2e8f0;
+            --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+        }
+
+        body {
+            background-color: var(--bg-body);
+            color: var(--text-main);
+            font-family: 'Inter', sans-serif;
+            min-height: 100vh;
+            margin: 0;
+            overflow-x: hidden;
+        }
+
+        .glass-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            box-shadow: var(--shadow);
+            transition: all 0.2s ease-in-out;
+        }
+
+        .navbar {
+            background: var(--navbar-bg);
+            border-bottom: 1px solid var(--border-color);
+            padding: 0.75rem 2rem;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+        }
+
+        .brand-logo {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--accent-blue);
+            letter-spacing: -0.5px;
+        }
+
+        .main-grid {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 1.5rem;
+            padding: 1.5rem;
+            max-width: 1800px;
+            margin: 0 auto;
+        }
+
+        /* Sidebar Controls */
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .control-group {
+            padding: 1.5rem;
+        }
+
+        .control-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            margin-bottom: 1rem;
+            display: block;
+            font-weight: 600;
+        }
+
+        .btn-glow-primary {
+            background: var(--accent-blue);
+            color: white;
+            border: none;
+            font-weight: 600;
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            width: 100%;
+        }
+        .btn-glow-primary:hover {
+            background: #0369a1;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25);
+            color: white;
+        }
+        .btn-glow-primary:active {
+            transform: translateY(0);
+        }
+
+        .btn-demo {
+            background: #0ea5e9;
+            color: white;
+            border: none;
+            font-weight: 600;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            transition: all 0.2s;
+        }
+        .btn-demo:hover {
+            background: #0284c7;
+            color: white;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+        }
+
+        /* KPI Cards */
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        .kpi-card {
+            padding: 1.25rem;
+            text-align: center;
+        }
+        .kpi-value {
+            font-size: 1.75rem;
+            font-weight: 700;
+            margin: 0.25rem 0;
+            color: var(--accent-blue);
+        }
+        .kpi-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+
+        /* Classes Filter List */
+        .filter-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        .filter-item {
+            display: flex;
+            align-items: center;
+            padding: 0.6rem 0.8rem;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+            border: 1px solid transparent;
+        }
+        .filter-item:hover {
+            background: #f8fafc;
+            border-color: var(--border-color);
+        }
+        .filter-item.active {
+            background: #f0f9ff;
+            border-color: #bae6fd;
+        }
+        .filter-item input {
+            width: 16px;
+            height: 16px;
+            margin-right: 12px;
+            cursor: pointer;
+            accent-color: var(--accent-blue);
+        }
+        .filter-item span {
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: var(--text-main);
+        }
+
+        /* Stream Display */
+        .stream-layout {
+            display: grid;
+            grid-template-columns: 1fr 380px;
+            gap: 1.5rem;
+        }
+        .video-wrapper {
+            position: relative;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            aspect-ratio: 16/9;
+            cursor: pointer;
+            box-shadow: var(--shadow);
+        }
+        .live-badge {
+            position: absolute;
+            top: 1rem;
+            left: 1rem;
+            background: #ef4444;
+            color: white;
+            padding: 0.3rem 0.8rem;
+            border-radius: 6px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            animation: pulse 2s infinite;
+            z-index: 10;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(0.95); opacity: 0.8; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        .stat-pill {
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 0.4rem 0.8rem;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        .custom-progress {
+            height: 6px;
+            background: #e2e8f0;
+            border-radius: 3px;
+            margin-top: 1rem;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            background: var(--accent-blue);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        /* Modal */
+        .video-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            z-index: 9999;
+            align-items: center;
+            justify-content: center;
+        }
+        .video-modal img {
+            max-width: 95vw;
+            max-height: 90vh;
+            border-radius: 8px;
+            box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.5);
+        }
+        .modal-close-btn {
+            position: absolute;
+            top: 1.5rem;
+            right: 2rem;
+            color: white;
+            background: none;
+            border: none;
+            font-size: 2rem;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .modal-close-btn:hover {
+            transform: scale(1.1);
+        }
+
+        .hidden { display: none !important; }
+
+        @media (max-width: 1200px) {
+            .main-grid { grid-template-columns: 1fr; }
+            .sidebar { order: 2; }
+            .stream-layout { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+<nav class="navbar">
+    <div class="container-fluid d-flex justify-content-between align-items-center">
+        <div class="brand-logo">
+            <i class="fas fa-radar me-2"></i>TRAFFIC INTEL v2.0
+        </div>
+        <div class="d-flex gap-3 align-items-center">
+            <div id="global-status" class="small text-muted d-none d-md-block">
+                <span class="badge bg-success me-2">System Online</span>
+                <span id="active-jobs-count">0 active jobs</span>
+            </div>
+            <button class="btn btn-demo" id="demoBtn">
+                <i class="fas fa-play me-2"></i>Live Demo
+            </button>
+        </div>
+    </div>
+</nav>
+
+<div class="main-grid">
+    <aside class="sidebar">
+        <div class="glass-card control-group">
+            <span class="control-label">Video Ingestion</span>
+            <div class="mb-3">
+                <input type="file" id="videoInput" class="form-control form-control-sm" multiple accept="video/*">
+            </div>
+            <button class="btn btn-glow-primary" id="startBtn">
+                <i class="fas fa-microchip me-2"></i>Start Analysis
+            </button>
+        </div>
+
+        <div class="glass-card control-group">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <span class="control-label mb-0">Detected Classes</span>
+                <div class="btn-group">
+                    <button class="btn btn-link btn-sm text-decoration-none p-0 me-2" id="selectAllBtn" style="font-size: 0.7rem; font-weight: 600;">ALL</button>
+                    <button class="btn btn-link btn-sm text-decoration-none p-0" id="deselectAllBtn" style="font-size: 0.7rem; font-weight: 600;">NONE</button>
+                </div>
+            </div>
+            <div class="filter-list" id="classFilters">
+                <!-- Dynamic Classes -->
+            </div>
+        </div>
+    </aside>
+
+    <main class="content-area">
+        <div class="kpi-grid">
+            <div class="glass-card kpi-card">
+                <div class="kpi-label">Vehicles Tracked</div>
+                <div class="kpi-value" id="total-tracked">0</div>
+            </div>
+            <div class="glass-card kpi-card">
+                <div class="kpi-label">Peak Intensity</div>
+                <div class="kpi-value" id="peak-intensity">0</div>
+            </div>
+            <div class="glass-card kpi-card">
+                <div class="kpi-label">Avg Processing</div>
+                <div class="kpi-value" id="avg-latency">--ms</div>
+            </div>
+            <div class="glass-card kpi-card">
+                <div class="kpi-label">Avg Traffic Speed</div>
+                <div class="kpi-value" id="avg-speed">0 <span style="font-size: 0.8rem; font-weight: 500;">km/h</span></div>
+            </div>
+            <div class="glass-card kpi-card">
+                <div class="kpi-label">Active Streams</div>
+                <div class="kpi-value" id="active-sockets-val">0</div>
+            </div>
+        </div>
+
+        <div id="streamsContainer">
+             <div class="glass-card p-5 text-center text-muted" id="empty-state" style="background: #f8fafc; border-style: dashed; border-width: 2px;">
+                <i class="fas fa-video-slash fa-3x mb-3 opacity-20"></i>
+                <h6 class="fw-semibold">No Data Streams Active</h6>
+                <p class="small mb-0">Upload video files or initialize the demo feed to begin real-time analysis.</p>
+             </div>
+        </div>
+    </main>
+</div>
+
+<div class="video-modal" id="videoModal">
+    <button class="modal-close-btn" id="modalClose"><i class="fas fa-times"></i></button>
+    <img id="modalVideo" src="" alt="Enlarged Feed">
+</div>
+
+<script>
+    // State
+    let charts = [];
+    let temporalCharts = [];
+    let activeJobs = [];
+    let availableClasses = [];
+    let activeSockets = [];
+    let activeModalSlot = null;
+    let globalStats = {
+        totalObjects: 0,
+        peakObjects: 0,
+        totalInferenceTime: 0,
+        inferenceCount: 0
+    };
+
+    // UI
+    const videoInput = document.getElementById('videoInput');
+    const startBtn = document.getElementById('startBtn');
+    const demoBtn = document.getElementById('demoBtn');
+    const streamsContainer = document.getElementById('streamsContainer');
+    const classFilters = document.getElementById('classFilters');
+    const selectAllBtn = document.getElementById('selectAllBtn');
+    const deselectAllBtn = document.getElementById('deselectAllBtn');
+    const emptyState = document.getElementById('empty-state');
+    const videoModal = document.getElementById('videoModal');
+    const modalVideo = document.getElementById('modalVideo');
+    const modalClose = document.getElementById('modalClose');
+
+    async function init() {
+        await loadClasses();
+        setupModal();
+    }
+
+    async function loadClasses() {
+        try {
+            const res = await fetch('/classes');
+            const data = await res.json();
+            availableClasses = data.classes;
+            renderClassFilters();
+        } catch (err) { console.error(err); }
+    }
+
+    function renderClassFilters() {
+        classFilters.innerHTML = '';
+        availableClasses.forEach(className => {
+            const div = document.createElement('div');
+            div.className = 'filter-item active';
+            div.innerHTML = `
+                <input type="checkbox" value="${className}" checked>
+                <span>${className}</span>
+            `;
+            const cb = div.querySelector('input');
+            div.onclick = (e) => {
+                if(e.target !== cb) cb.checked = !cb.checked;
+                div.classList.toggle('active', cb.checked);
+                broadcastFilterUpdate(); // Real-time update
+            };
+            classFilters.appendChild(div);
+        });
+    }
+
+    function broadcastFilterUpdate() {
+        const selectedStr = getSelectedClasses();
+        const selected = selectedStr ? selectedStr.split(',') : [];
+        activeSockets.forEach(socket => {
+            if (socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: "filter_update",
+                    filter_classes: selected
+                }));
+            }
+        });
+    }
+
+    function setupModal() {
+        modalClose.onclick = () => { activeModalSlot = null; videoModal.style.display = 'none'; };
+        videoModal.onclick = (e) => { if(e.target === videoModal) { activeModalSlot = null; videoModal.style.display = 'none'; } };
+    }
+
+    function getSelectedClasses() {
+        return Array.from(document.querySelectorAll('.filter-item input:checked')).map(cb => cb.value).join(',');
+    }
+
+    startBtn.onclick = () => {
+        if (videoInput.files.length === 0) return alert('Please select video files.');
+        processJobs(videoInput.files, 'upload');
+    };
+
+    demoBtn.onclick = () => processJobs([null], 'demo');
+
+    selectAllBtn.onclick = () => {
+        document.querySelectorAll('.filter-item').forEach(el => {
+            el.classList.add('active');
+            el.querySelector('input').checked = true;
+        });
+        broadcastFilterUpdate();
+    };
+    
+    deselectAllBtn.onclick = () => {
+        document.querySelectorAll('.filter-item').forEach(el => {
+            el.classList.remove('active');
+            el.querySelector('input').checked = false;
+        });
+        broadcastFilterUpdate();
+    };
+
+    function processJobs(items, type) {
+        closeExistingConnections();
+        activeModalSlot = null;
+        slotUniqueCounts = {}; // Reset cumulative counts for new session
+        streamsContainer.innerHTML = '';
+        emptyState.classList.add('hidden');
+        charts = []; temporalCharts = []; activeJobs = [];
+        globalStats = { totalObjects: 0, peakObjects: 0, totalInferenceTime: 0, inferenceCount: 0 };
+        document.getElementById('total-tracked').innerText = '0';
+        document.getElementById('peak-intensity').innerText = '0';
+        document.getElementById('active-sockets-val').innerText = '0';
+        
+        const selectedClasses = getSelectedClasses();
+
+        Array.from(items).forEach((item, i) => {
+            createStreamSlot(i);
+            activeJobs.push(false);
+            if (type === 'upload') runSlot(i, item, selectedClasses);
+            else runDemoSlot(i, selectedClasses);
+        });
+    }
+
+    function createStreamSlot(idx) {
+        const html = `
+            <div class="glass-card p-4 stream-layout mb-4" id="stream-slot-${idx}">
+                <div>
+                    <div class="video-wrapper mb-3" id="container-${idx}">
+                        <div class="live-badge" id="badge-${idx}">
+                            <i class="fas fa-circle"></i> LIVE
+                        </div>
+                        <img id="frame-${idx}" class="w-100 h-100" style="object-fit: contain; min-height: 100px; display: block;">
+                        <div class="position-absolute bottom-0 end-0 p-3">
+                            <div class="stat-pill">BUFFER: <span id="buffer-${idx}">0</span></div>
+                        </div>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div class="small text-truncate" style="max-width: 200px;"><span class="text-muted">Source:</span> <span class="fw-medium" id="name-${idx}">Initializing...</span></div>
+                        <div id="status-${idx}" class="badge bg-secondary">Waiting</div>
+                    </div>
+                    <div class="custom-progress"><div class="progress-fill" id="bar-${idx}"></div></div>
+                </div>
+                <div class="d-flex flex-column gap-3">
+                    <div class="glass-card p-3 flex-grow-1">
+                        <span class="control-label mb-2">Tracked by Class</span>
+                        <div style="height: 180px;"><canvas id="chart-${idx}"></canvas></div>
+                    </div>
+                    <div class="glass-card p-3">
+                        <span class="control-label mb-2">Vehicles in Frame (last 50)</span>
+                        <div style="height: 140px;"><canvas id="temporal-${idx}"></canvas></div>
+                    </div>
+                    <div class="glass-card p-3" id="speed-card-${idx}">
+                        <span class="control-label mb-2">Avg Speed by Class</span>
+                        <div id="speed-list-${idx}" class="text-muted small text-center py-1">No speed data yet</div>
+                    </div>
+                </div>
+            </div>
+        `;
+        streamsContainer.insertAdjacentHTML('beforeend', html);
+        document.getElementById(`container-${idx}`).onclick = () => {
+            const src = document.getElementById(`frame-${idx}`).src;
+            if(src) { activeModalSlot = idx; modalVideo.src = src; videoModal.style.display = 'flex'; }
+        };
+    }
+
+    async function runSlot(idx, file, selectedClasses) {
+        const formData = new FormData();
+        formData.append('video', file);
+        formData.append('selected_classes', selectedClasses);
+        try {
+            const res = await fetch('/upload', { method: 'POST', body: formData });
+            const data = await res.json();
+            document.getElementById(`name-${idx}`).innerText = file.name;
+            connectWS(idx, data.job_id);
+        } catch (err) { handleError(idx); }
+    }
+
+    async function runDemoSlot(idx, selectedClasses) {
+        const formData = new FormData();
+        formData.append('selected_classes', selectedClasses);
+        try {
+            const res = await fetch('/demo-job', { method: 'POST', body: formData });
+            const data = await res.json();
+            document.getElementById(`name-${idx}`).innerText = 'City Demo Feed';
+            connectWS(idx, data.job_id);
+        } catch (err) { handleError(idx); }
+    }
+
+    function connectWS(idx, jobId) {
+        console.log(`Job ${jobId}: Initiating connection...`);
+        const socket = new WebSocket(`${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/ws/${jobId}`);
+        socket.binaryType = 'blob'; 
+        
+        const frame = document.getElementById(`frame-${idx}`);
+        const bar = document.getElementById(`bar-${idx}`);
+        const status = document.getElementById(`status-${idx}`);
+        const bufferSpan = document.getElementById(`buffer-${idx}`);
+        
+        let frameQueue = [];
+        let isPlaying = false;
+        let targetFps = 15;
+        let temporalData = [];
+        let speedData = [];
+        let currentMetadata = null;
+
+        // ATTACH HANDLERS IMMEDIATELY
+        socket.onopen = () => {
+            activeSockets.push(socket);
+            document.getElementById('active-sockets-val').innerText = activeSockets.length;
+        };
+
+        socket.onmessage = (e) => {
+            try {
+                if (typeof e.data === 'string') {
+                    const msg = JSON.parse(e.data);
+                    if (msg.status === 'processing' && msg.type === 'metadata') {
+                        status.innerText = 'Streaming'; 
+                        status.className = 'badge bg-primary';
+                        targetFps = msg.target_fps || 15;
+                        currentMetadata = msg;
+                        
+                        const totalInFrame = Object.values(msg.current_counts).reduce((a,b)=>a+b, 0);
+                        temporalData.push(totalInFrame);
+                        if (temporalData.length > 50) temporalData.shift();
+                        speedData.push(msg.avg_speed || 0);
+                        if (speedData.length > 50) speedData.shift();
+                    } else if (msg.status === 'completed') {
+                        status.innerText = 'Finished';
+                        status.className = 'badge bg-success';
+                        socket.close();
+                    } else if (msg.error) {
+                        handleError(idx);
+                        socket.close();
+                    }
+                } else {
+                    // Binary frame data
+                    if (!currentMetadata) {
+                        currentMetadata = { current_counts: {}, cumulative_counts: {}, progress: 0, avg_speed: 0, class_speeds: {} };
+                    }
+                    
+                    frameQueue.push({
+                        blob: e.data,
+                        metadata: JSON.parse(JSON.stringify(currentMetadata))
+                    });
+                    
+                    if (!isPlaying) play();
+                }
+            } catch (msgErr) {
+                console.error(`Job ${jobId}: Message handling error:`, msgErr);
+            }
+        };
+
+        socket.onerror = (err) => console.error(`Job ${jobId}: WebSocket error observed:`, err);
+        
+        socket.onclose = (e) => {
+            activeSockets = activeSockets.filter(s => s !== socket);
+            document.getElementById('active-sockets-val').innerText = activeSockets.length;
+        };
+
+        async function play() {
+            if (isPlaying) return;
+            isPlaying = true;
+            
+            while (frameQueue.length > 0 || socket.readyState === WebSocket.OPEN) {
+                if (frameQueue.length > 0) {
+                    try {
+                        const data = frameQueue.shift();
+                        const blob = (data.blob instanceof Blob) ? data.blob : new Blob([data.blob], { type: 'image/jpeg' });
+                        if (blob.size === 0) continue;
+
+                        const blobUrl = URL.createObjectURL(blob);
+                        
+                        frame.onload = () => {
+                            setTimeout(() => URL.revokeObjectURL(blobUrl), 200);
+                        };
+                        
+                        frame.onerror = (err) => {
+                            console.error(`Slot ${idx}: Image load error for URL ${blobUrl}`, err);
+                        };
+
+                        frame.src = blobUrl;
+                        if (activeModalSlot === idx) modalVideo.src = blobUrl;
+
+                        if (data.metadata) {
+                            bar.style.width = data.metadata.progress + '%';
+                            updateUI(
+                                idx,
+                                data.metadata.current_counts,
+                                data.metadata.cumulative_counts,
+                                data.metadata.avg_speed,
+                                data.metadata.inference_time,
+                                temporalData,
+                                speedData,
+                                data.metadata.class_speeds || {}
+                            );
+                        }
+                        bufferSpan.innerText = frameQueue.length;
+                        await new Promise(r => setTimeout(r, 1000/targetFps));
+                    } catch (playErr) {
+                        console.error(`Slot ${idx}: Playback error:`, playErr);
+                    }
+                } else {
+                    await new Promise(r => setTimeout(r, 50));
+                }
+            }
+            isPlaying = false;
+        }
+    }
+
+    // State to track unique counts per slot for global aggregation
+    let slotUniqueCounts = {};
+
+    function updateUI(idx, currentCounts, cumulativeCounts, avgSpeed, inferenceTime, temporalData, speedData, classSpeeds) {
+        // 1. Update cumulative 'Vehicles Tracked' card
+        const cumValues = Object.values(cumulativeCounts);
+        const totalUniqueInSlot = cumValues.reduce((a, b) => a + b, 0);
+        slotUniqueCounts[idx] = totalUniqueInSlot;
+        
+        const grandTotal = Object.values(slotUniqueCounts).reduce((a, b) => a + b, 0);
+        document.getElementById('total-tracked').innerText = grandTotal;
+
+        // 2. Update 'Peak Intensity' card
+        const currentLabels = Object.keys(currentCounts);
+        const currentValues = Object.values(currentCounts);
+        const totalInCurrentFrame = currentValues.reduce((a, b) => a + b, 0);
+
+        if (totalInCurrentFrame > globalStats.peakObjects) {
+            globalStats.peakObjects = totalInCurrentFrame;
+            document.getElementById('peak-intensity').innerText = globalStats.peakObjects;
+        }
+
+        // 3. Update 'Avg Traffic Speed' card
+        if (avgSpeed > 0) {
+            document.getElementById('avg-speed').innerHTML = `${avgSpeed} <span style="font-size: 0.8rem; font-weight: 500;">km/h</span>`;
+        }
+
+        // 4. Update 'Avg Processing' card
+        if (inferenceTime) {
+            globalStats.totalInferenceTime += inferenceTime;
+            globalStats.inferenceCount++;
+            const avgLat = Math.round(globalStats.totalInferenceTime / globalStats.inferenceCount);
+            document.getElementById('avg-latency').innerText = avgLat + 'ms';
+        }
+
+        // Sort cumulative counts descending for bar chart
+        const sortedEntries = Object.entries(cumulativeCounts).sort((a, b) => b[1] - a[1]);
+        const chartLabels = sortedEntries.map(([k]) => k);
+        const chartValues = sortedEntries.map(([, v]) => v);
+
+        // 3. Update Bar Chart (Tracked by Class)
+        if (!charts[idx]) {
+            const ctx = document.getElementById(`chart-${idx}`).getContext('2d');
+            charts[idx] = new Chart(ctx, {
+                type: 'bar',
+                data: { labels: chartLabels, datasets: [{ data: chartValues, backgroundColor: '#0284c7', borderRadius: 4 }] },
+                options: {
+                    responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { color: '#64748b' } },
+                        y: { grid: { display: false }, ticks: { color: '#64748b' } }
+                    }
+                }
+            });
+        } else {
+            charts[idx].data.labels = chartLabels;
+            charts[idx].data.datasets[0].data = chartValues;
+            charts[idx].update('none');
+        }
+
+        const temporalLabels = new Array(temporalData.length).fill('');
+        if (!temporalCharts[idx]) {
+            const ctx = document.getElementById(`temporal-${idx}`).getContext('2d');
+            temporalCharts[idx] = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: temporalLabels,
+                    datasets: [
+                        {
+                            label: 'Vehicles',
+                            data: temporalData,
+                            borderColor: '#059669', borderWidth: 2, tension: 0.4,
+                            pointRadius: 0, fill: true, backgroundColor: 'rgba(5, 150, 105, 0.05)',
+                            yAxisID: 'yVehicles'
+                        },
+                        {
+                            label: 'Avg Speed',
+                            data: speedData,
+                            borderColor: '#f59e0b', borderWidth: 2, tension: 0.4,
+                            pointRadius: 0, fill: false, borderDash: [4, 3],
+                            yAxisID: 'ySpeed'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { display: true, labels: { boxWidth: 10, font: { size: 10 }, color: '#64748b' } },
+                        tooltip: {
+                            callbacks: {
+                                title: () => '',
+                                label: (ctx) => ctx.dataset.label === 'Avg Speed'
+                                    ? ` ${ctx.parsed.y} km/h`
+                                    : ` ${ctx.parsed.y} vehicles`
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { display: false },
+                        yVehicles: {
+                            position: 'left',
+                            grid: { color: '#f1f5f9' },
+                            ticks: { color: '#059669', maxTicksLimit: 4, stepSize: 1 },
+                            title: { display: true, text: 'Vehicles', color: '#059669', font: { size: 10 } }
+                        },
+                        ySpeed: {
+                            position: 'right',
+                            grid: { drawOnChartArea: false },
+                            ticks: { color: '#f59e0b', maxTicksLimit: 4 },
+                            title: { display: true, text: 'km/h', color: '#f59e0b', font: { size: 10 } }
+                        }
+                    }
+                }
+            });
+        } else {
+            temporalCharts[idx].data.labels = temporalLabels;
+            temporalCharts[idx].data.datasets[0].data = temporalData;
+            temporalCharts[idx].data.datasets[1].data = speedData;
+            temporalCharts[idx].update('none');
+        }
+
+        // Speed by class card
+        const speedList = document.getElementById(`speed-list-${idx}`);
+        if (speedList) {
+            const entries = Object.entries(classSpeeds).sort((a, b) => b[1] - a[1]).slice(0, 3);
+            const rows = [...entries];
+            while (rows.length < 3) rows.push(undefined);
+            speedList.innerHTML = rows.map(([cls, speed] = []) => cls
+                ? `<div class="d-flex justify-content-between align-items-center py-1 border-bottom" style="border-color: var(--border-color) !important;">
+                       <span style="font-size: 0.85rem; font-weight: 500;">${cls}</span>
+                       <span class="badge" style="background: #f59e0b; color: #1e293b; font-size: 0.8rem;">${speed} km/h</span>
+                   </div>`
+                : `<div class="d-flex justify-content-between align-items-center py-1 border-bottom" style="border-color: var(--border-color) !important;">
+                       <span style="font-size: 0.85rem; color: var(--text-muted);">—</span>
+                       <span style="font-size: 0.8rem; color: var(--text-muted);">—</span>
+                   </div>`
+            ).join('');
+        }
+    }
+
+    function closeExistingConnections() { activeSockets.forEach(s => s.close()); activeSockets = []; }
+    function handleError(idx) { const s = document.getElementById(`status-${idx}`); if(s){ s.innerText='Error'; s.className='badge bg-danger'; } }
+
+    init();
+</script>
+</body>
+</html>

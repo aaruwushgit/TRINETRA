@@ -1,0 +1,2747 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ANPR // SANDBOX TEST HARNESS [TERMINAL VIEW]</title>
+
+  <!-- Monospace typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700;800&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg: #090a0f;
+      --panel: #0d0f17;
+      --panel-border: #1e2433;
+      --text: #c0caf5;
+      --text-muted: #565f89;
+      --accent-green: #9ece6a;
+      --accent-cyan: #7dcfff;
+      --accent-amber: #e0af68;
+      --accent-red: #f7768e;
+      --accent-purple: #bb9af7;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      line-height: 1.4;
+      overflow-x: hidden;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Minimalist Linux top bar */
+    header {
+      background-color: #06070a;
+      border-bottom: 1px solid var(--panel-border);
+      padding: 6px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+    }
+
+    .brand-title {
+      font-weight: 800;
+      color: var(--accent-cyan);
+      letter-spacing: -0.5px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .brand-title span.badge {
+      font-size: 10px;
+      padding: 1px 5px;
+      background: #161b26;
+      border: 1px solid var(--panel-border);
+      color: var(--accent-green);
+      font-weight: 500;
+    }
+
+    /* Tabs / nav */
+    .tab-group { display: flex; gap: 4px; flex-wrap: wrap; }
+
+    .tab-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-muted);
+      font-family: inherit;
+      font-size: 11px;
+      padding: 4px 10px;
+      cursor: pointer;
+      border-radius: 2px;
+      transition: all 0.1s ease;
+      text-decoration: none;
+      display: inline-block;
+    }
+
+    .tab-btn:hover { color: var(--text); background: #131722; }
+
+    /* Which page the embedded instance is currently showing. */
+    .inst-btn.active {
+      border-color: var(--accent-cyan);
+      color: var(--accent-cyan);
+      font-weight: 700;
+    }
+
+    .tab-btn.active {
+      background: #161b26;
+      color: var(--accent-cyan);
+      border-color: var(--panel-border);
+      font-weight: 700;
+    }
+
+    .tab-btn:focus-visible { outline: 1px solid var(--accent-cyan); outline-offset: 1px; }
+
+    /* Main Grid */
+    main {
+      flex: 1;
+      padding: 10px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .grid-tab { display: none; }
+    .grid-tab.active { display: grid; }
+
+    .grid-media {
+      grid-template-columns: 372px 1fr;
+      height: calc(100vh - 84px);
+      min-height: 560px;
+    }
+
+    .grid-full { grid-template-columns: 1fr; height: calc(100vh - 84px); min-height: 520px; }
+    .grid-dataset { grid-template-columns: 420px 1fr; height: calc(100vh - 84px); min-height: 560px; }
+
+    .col-stack { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+
+    /* Linux Panel styling */
+    .box {
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 3px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .box-header {
+      background: #080a0f;
+      border-bottom: 1px solid var(--panel-border);
+      padding: 5px 10px;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .box-body {
+      padding: 8px;
+      flex: 1;
+      min-height: 0; /* flex children default to min-height:auto, which breaks overflow-y:auto */
+      overflow-y: auto;
+    }
+
+    /* Linux tables */
+    table.cli-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+      text-align: left;
+    }
+
+    table.cli-table th {
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--panel-border);
+      padding: 6px 6px;
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 10px;
+      position: sticky;
+      top: 0;
+      background: #080a0f;
+    }
+
+    table.cli-table td { padding: 6px; border-bottom: 1px solid #141824; }
+    table.cli-table tr:hover td { background-color: #121622; }
+
+    .status-pill {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      margin-right: 4px;
+    }
+
+    .status-pill.online { background-color: var(--accent-green); }
+    .status-pill.offline { background-color: var(--accent-red); }
+
+    /* Prompt Inputs */
+    .cli-input-group { display: flex; gap: 6px; margin-bottom: 8px; }
+
+    .cli-input {
+      flex: 1;
+      width: 100%;
+      background: #080a0f;
+      border: 1px solid var(--panel-border);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 11px;
+      padding: 5px 8px;
+      border-radius: 2px;
+      outline: none;
+    }
+
+    .cli-input:focus { border-color: var(--accent-cyan); }
+    select.cli-input { text-overflow: ellipsis; }
+
+    .cli-btn {
+      background: #161b26;
+      border: 1px solid var(--panel-border);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 11px;
+      padding: 5px 12px;
+      cursor: pointer;
+      border-radius: 2px;
+    }
+
+    .cli-btn:hover { background: #21293a; color: var(--accent-cyan); }
+    .cli-btn:focus-visible { outline: 1px solid var(--accent-cyan); outline-offset: 1px; }
+    .cli-btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+    .cli-btn[disabled]:hover { background: #161b26; color: var(--text); }
+    .cli-btn.primary { border-color: #2c4a3a; color: var(--accent-green); }
+    .cli-btn.primary:hover { color: var(--accent-green); background: #17251c; }
+    .cli-btn.danger { border-color: #4a2c36; color: var(--accent-red); }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--panel-border); }
+    ::-webkit-scrollbar-thumb:hover { background: #323b52; }
+
+    /* ── page-specific additions ─────────────────────────────────── */
+
+    .field { margin-bottom: 9px; }
+    .field label,
+    .field-label {
+      display: block;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+      margin-bottom: 3px;
+      font-weight: 600;
+    }
+
+    .hint { font-size: 10px; color: var(--text-muted); line-height: 1.45; }
+    .hint.tight { margin-top: 3px; }
+    .field-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+    input[type="file"].cli-input { padding: 4px 6px; font-size: 10px; cursor: pointer; }
+    input[type="file"]::file-selector-button {
+      background: #161b26;
+      border: 1px solid var(--panel-border);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 10px;
+      padding: 3px 8px;
+      margin-right: 8px;
+      border-radius: 2px;
+      cursor: pointer;
+    }
+
+    .toggle-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 7px;
+      padding: 7px 8px;
+      border: 1px solid var(--panel-border);
+      background: #080a0f;
+      border-radius: 2px;
+      margin-bottom: 9px;
+    }
+    .toggle-row input[type="checkbox"] { margin-top: 2px; accent-color: var(--accent-green); cursor: pointer; }
+    .toggle-row label { cursor: pointer; font-size: 11px; color: var(--text); }
+
+    .notice {
+      border: 1px solid var(--panel-border);
+      border-left-width: 3px;
+      background: #080a0f;
+      padding: 6px 8px;
+      font-size: 10.5px;
+      line-height: 1.5;
+      margin-bottom: 8px;
+      border-radius: 2px;
+      color: var(--text-muted);
+      word-break: break-word;
+    }
+    .notice strong { color: var(--text); font-weight: 700; }
+    .notice.info { border-left-color: var(--accent-cyan); }
+    .notice.warn { border-left-color: var(--accent-amber); }
+    .notice.err  { border-left-color: var(--accent-red); }
+    .notice.ok   { border-left-color: var(--accent-green); }
+    .notice.hidden { display: none; }
+
+    .sandbox-flag {
+      font-size: 10px;
+      padding: 2px 7px;
+      border-radius: 2px;
+      border: 1px solid #2c4a3a;
+      background: #101a13;
+      color: var(--accent-green);
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      white-space: nowrap;
+    }
+    .sandbox-flag.off {
+      border-color: #4a3a2c;
+      background: #1a1510;
+      color: var(--accent-amber);
+    }
+
+    /* KPI tiles */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+      gap: 6px;
+    }
+    .kpi {
+      border: 1px solid var(--panel-border);
+      background: #080a0f;
+      padding: 6px 8px;
+      border-radius: 2px;
+      min-width: 0;
+    }
+    .kpi-label {
+      font-size: 9.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .kpi-value {
+      font-size: 16px;
+      font-weight: 700;
+      margin-top: 2px;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .kpi-value.cyan { color: var(--accent-cyan); }
+    .kpi-value.green { color: var(--accent-green); }
+    .kpi-value.amber { color: var(--accent-amber); }
+    .kpi-value.purple { color: var(--accent-purple); }
+    .kpi-value.red { color: var(--accent-red); }
+    .kpi-sub { font-size: 9.5px; color: var(--text-muted); }
+
+    /* progress bar */
+    .pbar {
+      height: 10px;
+      background: #080a0f;
+      border: 1px solid var(--panel-border);
+      border-radius: 2px;
+      overflow: hidden;
+      position: relative;
+    }
+    .pbar-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #2c4a3a, var(--accent-green));
+      transition: width 0.25s linear;
+    }
+    .pbar-fill.indeterminate {
+      width: 32% !important;
+      background: linear-gradient(90deg, transparent, var(--accent-cyan), transparent);
+      animation: slide 1.1s linear infinite;
+    }
+    .pbar-fill.failed { background: linear-gradient(90deg, #4a2c36, var(--accent-red)); }
+    @keyframes slide { 0% { transform: translateX(-110%); } 100% { transform: translateX(330%); } }
+
+    /* stage bars */
+    .stage-row { display: grid; grid-template-columns: 58px 1fr 116px; gap: 8px; align-items: center; margin-bottom: 5px; }
+    .stage-name { font-size: 10px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; }
+    .stage-track { height: 9px; background: #080a0f; border: 1px solid var(--panel-border); border-radius: 2px; overflow: hidden; }
+    .stage-fill { height: 100%; width: 0%; }
+    .stage-fill.detect { background: var(--accent-cyan); }
+    .stage-fill.ocr { background: var(--accent-purple); }
+    .stage-fill.log { background: var(--accent-amber); }
+    .stage-fill.other { background: var(--text-muted); }
+    .stage-val { font-size: 10px; color: var(--text); text-align: right; white-space: nowrap; }
+
+    .kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 11px; }
+    .kv dt { color: var(--text-muted); white-space: nowrap; }
+    .kv dd { color: var(--text); text-align: right; }
+
+    /* new-plate highlight */
+    tr.row-new td { animation: flashrow 1.6s ease-out 1; }
+    @keyframes flashrow {
+      0%   { background-color: #1d2b1b; color: var(--accent-green); }
+      100% { background-color: transparent; }
+    }
+
+    .mono-block {
+      background: #06070a;
+      border: 1px solid var(--panel-border);
+      border-radius: 2px;
+      padding: 8px;
+      font-size: 10px;
+      line-height: 1.5;
+      white-space: pre;
+      overflow-x: auto;
+      color: var(--text);
+      max-height: 260px;
+      overflow-y: auto;
+    }
+
+    .plate-txt { color: var(--accent-green); font-weight: 700; letter-spacing: 0.5px; }
+    .muted { color: var(--text-muted); }
+    .cyan { color: var(--accent-cyan); }
+    .amber { color: var(--accent-amber); }
+    .red { color: var(--accent-red); }
+    .green { color: var(--accent-green); }
+    .purple { color: var(--accent-purple); }
+
+    .sec-title {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+      font-weight: 700;
+      margin: 10px 0 5px;
+      border-top: 1px solid var(--panel-border);
+      padding-top: 8px;
+    }
+    .sec-title:first-child { margin-top: 0; border-top: none; padding-top: 0; }
+
+    .err-list { max-height: 260px; overflow-y: auto; font-size: 10.5px; }
+    .err-list div { padding: 3px 6px; border-bottom: 1px solid #141824; }
+    .err-list .rowno { color: var(--accent-amber); display: inline-block; min-width: 74px; }
+
+    .split-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; }
+
+    @media (max-width: 1100px) {
+      .grid-media, .grid-dataset { grid-template-columns: 1fr; height: auto; }
+      .split-2 { grid-template-columns: 1fr; }
+      .stage-row { grid-template-columns: 52px 1fr 100px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- TOP BAR -->
+  <header>
+    <div class="brand-title">
+      <span>sys::anpr-radar</span>
+      <span class="badge" id="run-indicator">● IDLE / NO JOB</span>
+    </div>
+
+    <nav class="tab-group" aria-label="Primary">
+      <a class="tab-btn" href="/app">[0] SURVEILLANCE</a>
+      <a class="tab-btn active" href="/app/test" aria-current="page">[1] SANDBOX</a>
+      <a class="tab-btn" href="/app/benchmarks">[2] BENCHMARKS</a>
+    </nav>
+
+    <div style="display:flex; align-items:center; gap:12px; font-size:11px; color:var(--text-muted);">
+      <span id="sandbox-flag" class="sandbox-flag">◆ ISOLATED SANDBOX</span>
+      <span>JOBS API: <span id="jobs-api-status" class="muted">checking…</span></span>
+    </div>
+  </header>
+
+  <!-- SUB TABS -->
+  <div style="padding: 8px 10px 0; display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+    <div class="tab-group" role="tablist" aria-label="Sandbox sections">
+      <button class="tab-btn active" id="st-video" role="tab" aria-selected="true" onclick="showSection('video')">VIDEO</button>
+      <button class="tab-btn" id="st-photo" role="tab" aria-selected="false" onclick="showSection('photo')">PHOTO</button>
+      <button class="tab-btn" id="st-dataset" role="tab" aria-selected="false" onclick="showSection('dataset')">CITY DATASET</button>
+      <button class="tab-btn" id="st-jobs" role="tab" aria-selected="false" onclick="showSection('jobs')">RECENT JOBS</button>
+      <button class="tab-btn" id="st-instance" role="tab" aria-selected="false" onclick="showSection('instance')">LIVE INSTANCE</button>
+    </div>
+    <div class="hint">Bring your own video, photo or city dataset — this page runs the same pipeline the dashboard uses.</div>
+  </div>
+
+  <!-- ══ SECTION: VIDEO / PHOTO (shared run panel) ══ -->
+  <main id="sec-media" class="grid-media grid-tab active">
+
+    <!-- LEFT: input controls -->
+    <section class="box">
+      <div class="box-header">
+        <span id="media-form-title">Video Input</span>
+        <span class="hint" id="media-endpoint-label">POST /jobs/video</span>
+      </div>
+      <div class="box-body">
+        <div id="jobs-unavailable" class="notice warn hidden"></div>
+
+        <!-- VIDEO form -->
+        <div id="form-video">
+          <div class="notice info">
+            <strong>How this works.</strong> Pick a bundled clip (nothing is uploaded — the server reads it
+            from disk) or upload your own. Frames are detected, plates are OCR'd, reads are voted across
+            consecutive frames per track, then logged.
+          </div>
+
+          <div class="field">
+            <label for="v-sample">Bundled sample clip (no upload)</label>
+            <select class="cli-input" id="v-sample">
+              <option value="">— none (use my own file) —</option>
+            </select>
+            <div class="hint tight">Sent as <code>source_path</code>, so the 184&nbsp;MB clip never crosses the wire.</div>
+          </div>
+
+          <div class="field">
+            <label for="v-file">…or upload a video file</label>
+            <input class="cli-input" type="file" id="v-file" accept="video/*" />
+            <div class="hint tight">Any format OpenCV can decode (mp4 / mov / avi / mkv).</div>
+          </div>
+
+          <div class="sec-title">Pipeline parameters</div>
+
+          <div class="field">
+            <label for="v-camera">camera_id</label>
+            <input class="cli-input" type="text" id="v-camera" value="SANDBOX-CAM-01" />
+          </div>
+
+          <div class="field-2">
+            <div class="field">
+              <label for="v-ocr-every">ocr_every (frames)</label>
+              <input class="cli-input" type="number" id="v-ocr-every" value="3" min="1" max="30" step="1" />
+            </div>
+            <div class="field">
+              <label for="v-max-frames">max_frames</label>
+              <input class="cli-input" type="number" id="v-max-frames" value="300" min="1" max="200000" step="50" />
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="v-min-reads">min_reads (votes per plate)</label>
+            <input class="cli-input" type="number" id="v-min-reads" value="2" min="1" max="20" step="1" />
+            <div class="hint tight">
+              A plate must be read this many times across consecutive frames before it is logged. This is the
+              cross-frame voting that makes video far more accurate than a single still.
+            </div>
+          </div>
+          <div class="hint" style="margin-bottom:9px;">
+            <span class="amber">max_frames defaults to 300</span> so a demo run finishes in about 15 seconds
+            instead of chewing through a whole clip. On the bundled ANPR clip the first plate is only
+            readable around frame 130, so a much smaller cap will legitimately find nothing — raise the cap
+            rather than concluding the detector is broken.
+            <code>ocr_every=3</code> means detection runs on every frame but OCR only on every 3rd — that is
+            where most of the compute saving comes from.
+          </div>
+
+          <div class="field">
+            <label for="v-region">region (plate grammar)</label>
+            <input class="cli-input" type="text" id="v-region" value="IN" />
+            <div class="hint tight">Region code used to validate plate format. IN = India.</div>
+          </div>
+
+          <div class="toggle-row">
+            <input type="checkbox" id="v-sandbox" checked />
+            <label for="v-sandbox">
+              <span class="green">Sandbox / isolated instance</span><br/>
+              <span class="hint">ON: results are kept in an isolated sandbox instance and the live city
+              database is <strong>not</strong> written to. OFF: detections are inserted into the main DB.</span>
+            </label>
+          </div>
+
+          <div class="cli-input-group">
+            <button class="cli-btn primary" id="v-submit" onclick="submitVideo()">▶ RUN PIPELINE</button>
+            <button class="cli-btn danger" id="v-stop" onclick="cancelJob()" disabled>■ CANCEL</button>
+            <button class="cli-btn" id="v-cancel" onclick="detachJob()" disabled>DETACH</button>
+          </div>
+        </div>
+
+        <!-- PHOTO form -->
+        <div id="form-photo" style="display:none;">
+          <div class="notice warn">
+            <strong>Honest caveat on single stills.</strong> A photo gives you the model's
+            <em>raw</em> OCR accuracy. In video the pipeline sees the same plate across consecutive frames
+            and votes across those reads, which repairs most single-frame character errors. One still has
+            nothing to vote across, so expect noticeably lower accuracy than the video numbers — this is a
+            documented property of the underlying ALPR model, not a bug in this page.
+          </div>
+
+          <div class="field">
+            <label for="p-file">Upload a photo</label>
+            <input class="cli-input" type="file" id="p-file" accept="image/*" />
+            <div class="hint tight">jpg / png / webp. A reasonably legible plate helps.</div>
+          </div>
+
+          <div class="field">
+            <label for="p-source">…or an absolute server-side path</label>
+            <input class="cli-input" type="text" id="p-source" placeholder="/Users/…/frame.jpg" />
+            <div class="hint tight">Sent as <code>source_path</code> — useful for files already on the host.</div>
+          </div>
+
+          <div class="sec-title">Pipeline parameters</div>
+
+          <div class="field">
+            <label for="p-camera">camera_id</label>
+            <input class="cli-input" type="text" id="p-camera" value="SANDBOX-CAM-01" />
+          </div>
+
+          <div class="field">
+            <label for="p-region">region (plate grammar)</label>
+            <input class="cli-input" type="text" id="p-region" value="IN" />
+          </div>
+
+          <div class="toggle-row">
+            <input type="checkbox" id="p-sandbox" checked />
+            <label for="p-sandbox">
+              <span class="green">Sandbox / isolated instance</span><br/>
+              <span class="hint">Keeps this read out of the live city database.</span>
+            </label>
+          </div>
+
+          <div class="cli-input-group">
+            <button class="cli-btn primary" id="p-submit" onclick="submitPhoto()">▶ RUN OCR</button>
+            <button class="cli-btn danger" id="p-stop" onclick="cancelJob()" disabled>■ CANCEL</button>
+            <button class="cli-btn" id="p-cancel" onclick="detachJob()" disabled>DETACH</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- RIGHT: live run panel -->
+    <div class="col-stack">
+
+      <!-- RUN STATUS -->
+      <section class="box" style="flex: 0 0 auto;">
+        <div class="box-header">
+          <span>Run Status</span>
+          <span>
+            <span id="job-id-label" class="hint">no job</span>
+            <span id="transport-label" class="hint" style="margin-left:8px;">transport: —</span>
+          </span>
+        </div>
+        <div class="box-body" style="overflow-y:visible;">
+          <div id="run-notice" class="notice info">
+            No run yet. Configure a source on the left and hit <strong>RUN PIPELINE</strong>.
+            Progress streams over <code>WS /ws/jobs/{job_id}</code>, with 1&nbsp;s polling as a fallback.
+          </div>
+
+          <div class="pbar" role="progressbar" aria-label="Job progress" aria-valuemin="0" aria-valuemax="100">
+            <div class="pbar-fill" id="pbar-fill"></div>
+          </div>
+          <div style="display:flex; justify-content:space-between; margin: 4px 0 8px;">
+            <span class="hint" id="progress-text">—</span>
+            <span class="hint" id="status-text">STATUS: —</span>
+          </div>
+
+          <div id="sandbox-proof" class="notice info hidden"></div>
+
+          <div class="kpi-grid">
+            <div class="kpi"><div class="kpi-label">Frames</div><div class="kpi-value cyan" id="k-frames">—</div></div>
+            <div class="kpi"><div class="kpi-label">Live FPS</div><div class="kpi-value green" id="k-fps">—</div></div>
+            <div class="kpi"><div class="kpi-label">Detections</div><div class="kpi-value purple" id="k-det">—</div></div>
+            <div class="kpi"><div class="kpi-label">Unique plates</div><div class="kpi-value amber" id="k-plates">—</div></div>
+            <div class="kpi"><div class="kpi-label">Elapsed</div><div class="kpi-value" id="k-elapsed">—</div></div>
+            <div class="kpi"><div class="kpi-label">OCR calls</div><div class="kpi-value" id="k-ocr">—</div></div>
+          </div>
+        </div>
+      </section>
+
+      <div class="split-2" style="flex: 0 0 auto;">
+        <!-- COMPUTE COST -->
+        <section class="box">
+          <div class="box-header">
+            <span>Compute Cost</span>
+            <span class="hint" id="compute-src">GET /jobs/system/compute</span>
+          </div>
+          <div class="box-body">
+            <div id="compute-notice" class="notice info hidden"></div>
+            <dl class="kv" style="margin-bottom:8px;">
+              <dt>device</dt><dd id="c-device">—</dd>
+              <dt>process cpu</dt><dd id="c-cpu">—</dd>
+              <dt>rss</dt><dd id="c-rss">—</dd>
+              <dt>peak rss</dt><dd id="c-peak">—</dd>
+            </dl>
+            <div class="field-label">Per-stage breakdown</div>
+            <div id="stage-bars">
+              <div class="hint">No timings yet — run a job to measure detect / ocr / log cost.</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- RUN SUMMARY -->
+        <section class="box">
+          <div class="box-header">
+            <span>Pipeline Report</span>
+            <span class="hint" id="summary-state">pending</span>
+          </div>
+          <div class="box-body">
+            <dl class="kv">
+              <dt>total frames</dt><dd id="s-frames">—</dd>
+              <dt>throughput</dt><dd id="s-fps">—</dd>
+              <dt>detections</dt><dd id="s-det">—</dd>
+              <dt>ocr calls</dt><dd id="s-ocr">—</dd>
+              <dt>tracks completed</dt><dd id="s-tracks">—</dd>
+              <dt>plates logged</dt><dd id="s-logged">—</dd>
+              <dt>grammar-rejected</dt><dd id="s-rejected">—</dd>
+              <dt>too few reads</dt><dd id="s-toofew">—</dd>
+              <dt>duplicates suppressed</dt><dd id="s-suppressed">—</dd>
+              <dt>dropped frames</dt><dd id="s-dropped">—</dd>
+              <dt>events inserted</dt><dd id="s-inserted">—</dd>
+              <dt>events skipped</dt><dd id="s-skipped">—</dd>
+            </dl>
+            <div id="skip-reasons"></div>
+            <div class="hint" style="margin-top:7px;">
+              Rejected / suppressed counts are the quality filter doing its job: a read that fails plate
+              grammar or repeats an already-logged sighting is dropped rather than written.
+            </div>
+            <pre class="mono-block" id="stats-report" style="display:none; margin-top:8px;"></pre>
+          </div>
+        </section>
+      </div>
+
+      <!-- PLATES -->
+      <section class="box" style="flex: 1 1 auto; min-height: 180px;">
+        <div class="box-header">
+          <span>Plates Read (live)</span>
+          <span style="display:flex; align-items:center; gap:10px;">
+            <label class="hint" for="show-provisional"
+                   style="display:flex; align-items:center; gap:4px; cursor:pointer; text-transform:none; letter-spacing:0;">
+              <input type="checkbox" id="show-provisional" style="accent-color: var(--accent-amber); cursor:pointer;" />
+              show provisional raw reads
+            </label>
+            <span class="hint" id="plate-count">0 confirmed</span>
+          </span>
+        </div>
+        <div class="box-body" style="padding: 0;">
+          <table class="cli-table" id="plate-table">
+            <thead>
+              <tr>
+                <th>PLATE</th>
+                <th>CONF</th>
+                <th>TRACK</th>
+                <th>FRAME</th>
+                <th>TIMESTAMP</th>
+              </tr>
+            </thead>
+            <tbody id="plate-body">
+              <tr><td colspan="5" class="muted" style="padding:10px;">No plates yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- ══ SECTION: CITY DATASET ══ -->
+  <main id="sec-dataset" class="grid-dataset grid-tab">
+    <section class="box">
+      <div class="box-header">
+        <span>Bring Your Own City</span>
+        <span class="hint">client-side validated</span>
+      </div>
+      <div class="box-body">
+        <div class="notice info">
+          <strong>Two artefacts.</strong> <span class="cyan">cameras</span> describe where you are watching,
+          <span class="cyan">events</span> are plate sightings at those cameras. Upload one JSON file holding
+          either or both keys, a bare JSON array, or a CSV of one artefact. Everything is validated in your
+          browser first — nothing is sent until the format checks out.
+        </div>
+
+        <div class="field">
+          <label for="d-file">Dataset file (.json / .csv)</label>
+          <input class="cli-input" type="file" id="d-file" accept=".json,.csv,.txt,application/json,text/csv" />
+        </div>
+
+        <div class="field">
+          <label for="d-kind">CSV artefact type</label>
+          <select class="cli-input" id="d-kind">
+            <option value="auto">auto-detect from headers</option>
+            <option value="cameras">cameras</option>
+            <option value="events">events</option>
+          </select>
+          <div class="hint tight">Only used for CSV; JSON is detected from its keys.</div>
+        </div>
+
+        <div class="toggle-row">
+          <input type="checkbox" id="d-sandbox" checked />
+          <label for="d-sandbox">
+            <span class="green">Sandbox / isolated instance</span><br/>
+            <span class="hint">Ingest into an isolated instance, leaving the live city data untouched.</span>
+          </label>
+        </div>
+
+        <div class="cli-input-group">
+          <button class="cli-btn" id="d-validate" onclick="validateDataset()">✓ VALIDATE</button>
+          <button class="cli-btn primary" id="d-submit" onclick="submitDataset()">▶ INGEST</button>
+        </div>
+
+        <div class="sec-title">Templates</div>
+        <div class="cli-input-group">
+          <button class="cli-btn" onclick="downloadTemplate('json')">⭳ dataset.json</button>
+          <button class="cli-btn" onclick="downloadTemplate('cameras.csv')">⭳ cameras.csv</button>
+          <button class="cli-btn" onclick="downloadTemplate('events.csv')">⭳ events.csv</button>
+        </div>
+
+        <div class="sec-title">Ready-made demo dataset</div>
+        <div class="notice info">
+          <strong>Mumbai, one week.</strong> 41 real junctions on the Western and Eastern Express
+          Highways, the Sea Link, SV Road, LBS Marg and the Sion-Panvel corridor; ~31,000 sightings
+          of ~750 vehicles driving commuter patterns, with three watchlist plates and a set of
+          habitual speeders planted on purpose. Download it, upload it above, and the platform
+          comes up on Mumbai.
+        </div>
+        <div class="cli-input-group">
+          <button class="cli-btn primary" onclick="downloadSample('json')">&#11015; mumbai_week.json</button>
+          <button class="cli-btn" onclick="downloadSample('cameras')">&#11015; cameras.csv</button>
+          <button class="cli-btn" onclick="downloadSample('events')">&#11015; events.csv</button>
+        </div>
+        <div class="hint tight" id="sample-note"></div>
+
+        <div class="sec-title">Field contract</div>
+        <!-- Rendered from GET /jobs/dataset/schema so the documented format is
+             literally the format the parser enforces. -->
+        <div id="field-contract">
+          <div class="notice info">Loading the contract from the server…</div>
+        </div>
+      </div>
+    </section>
+
+    <div class="col-stack">
+      <section class="box" style="flex: 0 0 auto;">
+        <div class="box-header">
+          <span>Expected Format</span>
+          <button class="cli-btn" style="padding:2px 6px; font-size:10px;" onclick="copyExample(this)">COPY JSON</button>
+        </div>
+        <div class="box-body">
+          <div class="mono-block" id="example-json"></div>
+        </div>
+      </section>
+
+      <section class="box" style="flex: 1 1 auto; min-height: 220px;">
+        <div class="box-header">
+          <span>Validation Result</span>
+          <span class="hint" id="d-state">awaiting file</span>
+        </div>
+        <div class="box-body">
+          <div id="d-notice" class="notice info">
+            Pick a file and press <strong>VALIDATE</strong>. You will get a per-row error list
+            (row number + what is wrong) before anything is submitted.
+          </div>
+          <div id="d-summary"></div>
+          <div id="d-errors"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- ══ SECTION: RECENT JOBS ══ -->
+  <main id="sec-jobs" class="grid-full grid-tab">
+    <section class="box">
+      <div class="box-header">
+        <span>Recent Jobs</span>
+        <button class="cli-btn" style="padding:2px 6px; font-size:10px;" onclick="fetchRecentJobs()">REFRESH</button>
+      </div>
+      <div class="box-body" style="padding:0;">
+        <div id="jobs-notice" class="notice info" style="margin:8px;">Loading…</div>
+        <table class="cli-table" id="jobs-table">
+          <thead>
+            <tr>
+              <th>JOB ID</th>
+              <th>STATUS</th>
+              <th>KIND</th>
+              <th>SOURCE</th>
+              <th>SANDBOX</th>
+              <th>FRAMES</th>
+              <th>PLATES</th>
+              <th>FPS</th>
+              <th>CREATED</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="jobs-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <!-- ══ SECTION: LIVE INSTANCE ══════════════════════════════════════════
+       The whole product, running inside this window.
+
+       A sandbox that only shows a plate table asks the visitor to take the
+       rest on trust. This embeds the *actual* running pages — dashboard,
+       live ingestion monitor, benchmarks, API docs — in a frame, so a
+       visitor can drive every part of the platform without leaving the page
+       and see for themselves that it all works. It is the same origin and
+       the same server: nothing here is a screenshot or a mock.            -->
+  <main id="sec-instance" class="grid-full grid-tab">
+    <section class="box">
+      <div class="box-header">
+        <span>Live Instance — the whole platform, in this window</span>
+        <span class="controls" style="display:flex; gap:6px; align-items:center;">
+          <span class="hint" id="inst-url">—</span>
+          <button class="cli-btn" style="padding:2px 6px; font-size:10px;" onclick="reloadInstance()">⟳ RELOAD</button>
+          <button class="cli-btn" style="padding:2px 6px; font-size:10px;" onclick="popOutInstance()">POP OUT ↗</button>
+        </span>
+      </div>
+      <div class="box-body" style="padding:0; display:flex; flex-direction:column;">
+        <div style="display:flex; gap:4px; padding:6px 8px; border-bottom:1px solid var(--panel-border); flex-wrap:wrap; align-items:center;">
+          <button class="cli-btn inst-btn active" data-src="/app" onclick="showInstance('/app', this)">DASHBOARD</button>
+          <button class="cli-btn inst-btn" data-src="/app/live" onclick="showInstance('/app/live', this)">LIVE INGESTION</button>
+          <button class="cli-btn inst-btn" data-src="/app/benchmarks" onclick="showInstance('/app/benchmarks', this)">BENCHMARKS</button>
+          <button class="cli-btn inst-btn" data-src="/docs" onclick="showInstance('/docs', this)">API DOCS</button>
+          <span style="flex:1;"></span>
+          <span class="hint">clock:</span>
+          <button class="cli-btn" style="padding:2px 6px; font-size:10px;" onclick="instClock('start')">▶ START</button>
+          <button class="cli-btn" style="padding:2px 6px; font-size:10px;" onclick="instClock('pause')">❙❙ PAUSE</button>
+          <span class="hint" id="inst-clock">—</span>
+        </div>
+        <div class="notice info" style="margin:8px;">
+          <strong>This is the running system, not a screenshot.</strong> Every panel below is served
+          by the same API this page talks to. Start the clock and the live ingestion view fills with
+          sightings being written to the database in real time.
+        </div>
+        <div style="flex:1; min-height:420px; position:relative; background:#06070a;">
+          <iframe id="inst-frame" src="/app" title="Embedded platform instance"
+                  style="position:absolute; inset:0; width:100%; height:100%; border:0;"></iframe>
+        </div>
+      </div>
+    </section>
+  </main>
+
+<script>
+'use strict';
+
+const API_BASE = window.location.origin;
+const DASH = '—';
+
+/* ──────────────────────────────────────────────────────────────────
+   Defensive accessors: backend key names may vary slightly, so every
+   read goes through a candidate list and falls back to undefined.
+   Nothing in this file is allowed to render "undefined" or "NaN".
+   ────────────────────────────────────────────────────────────────── */
+
+function getPath(obj, path) {
+  if (obj === null || obj === undefined) return undefined;
+  let cur = obj;
+  for (const part of String(path).split('.')) {
+    if (cur === null || cur === undefined || typeof cur !== 'object') return undefined;
+    cur = cur[part];
+  }
+  return cur;
+}
+
+function pick(obj, keys) {
+  for (const k of keys) {
+    const v = getPath(obj, k);
+    if (v !== undefined && v !== null && v !== '') return v;
+  }
+  return undefined;
+}
+
+function pickNum(obj, keys) {
+  for (const k of keys) {
+    const v = getPath(obj, k);
+    if (v === null || v === undefined || v === '' || typeof v === 'object') continue;
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return undefined;
+}
+
+/** Like pick(), but never returns an object/array — so we can't render "[object Object]". */
+function pickScalar(obj, keys) {
+  for (const k of keys) {
+    const v = getPath(obj, k);
+    if (v === undefined || v === null || v === '' || typeof v === 'object') continue;
+    return v;
+  }
+  return undefined;
+}
+
+/** First non-empty array among the candidate keys. */
+function pickArray(obj, keys) {
+  for (const k of keys) {
+    const v = getPath(obj, k);
+    if (Array.isArray(v) && v.length > 0) return v;
+  }
+  return [];
+}
+
+/* ── formatting ─────────────────────────────────────────────────── */
+
+function fmtInt(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return DASH;
+  return Math.round(n).toLocaleString('en-US');
+}
+
+function fmtNum(v, d) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return DASH;
+  const dec = (d === undefined) ? 1 : d;
+  return n.toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+}
+
+function fmtPct01(v, d) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return DASH;
+  const pct = n <= 1 ? n * 100 : n; // tolerate 0-1 or 0-100
+  return fmtNum(pct, d === undefined ? 1 : d) + '%';
+}
+
+function fmtPct(v, d) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return DASH;
+  return fmtNum(n, d === undefined ? 1 : d) + '%';
+}
+
+function fmtSecs(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return DASH;
+  if (n < 1) return fmtNum(n * 1000, 0) + ' ms';
+  if (n < 90) return fmtNum(n, 2) + ' s';
+  const m = Math.floor(n / 60);
+  const s = Math.round(n % 60);
+  return m + 'm ' + String(s).padStart(2, '0') + 's';
+}
+
+function fmtMs(v, d) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return DASH;
+  return fmtNum(n, d === undefined ? 1 : d) + ' ms';
+}
+
+function fmtMB(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return DASH;
+  if (n >= 1024) return fmtNum(n / 1024, 2) + ' GB';
+  return fmtNum(n, 1) + ' MB';
+}
+
+function fmtBytes(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return DASH;
+  if (n >= 1e9) return fmtNum(n / 1e9, 2) + ' GB';
+  if (n >= 1e6) return fmtNum(n / 1e6, 2) + ' MB';
+  if (n >= 1024) return fmtNum(n / 1024, 1) + ' KB';
+  return fmtInt(n) + ' B';
+}
+
+function fmtTs(v) {
+  if (v === null || v === undefined || v === '') return DASH;
+  const raw = String(v);
+  let d = new Date(raw);
+  if (isNaN(d.getTime()) && /^\d+(\.\d+)?$/.test(raw)) {
+    const n = Number(raw);
+    d = new Date(n > 1e12 ? n : n * 1000);
+  }
+  if (isNaN(d.getTime())) return raw;
+  return d.toLocaleTimeString('en-GB', { hour12: false }) + ' ' +
+         d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+}
+
+function esc(v) {
+  if (v === null || v === undefined) return DASH;
+  return String(v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function txt(v) {
+  if (v === null || v === undefined || v === '') return DASH;
+  return esc(v);
+}
+
+function setText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = (value === null || value === undefined || value === '') ? DASH : String(value);
+}
+
+function showNotice(id, cls, html) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.className = 'notice ' + cls;
+  el.innerHTML = html;
+}
+
+function hideNotice(id) {
+  const el = document.getElementById(id);
+  if (el) el.className = 'notice info hidden';
+}
+
+/** Uniform fetch wrapper: never throws, always reports why it failed. */
+async function apiFetch(path, options) {
+  try {
+    const res = await fetch(API_BASE + path, options || {});
+    let body = null;
+    const ct = res.headers.get('content-type') || '';
+    try {
+      body = ct.indexOf('json') >= 0 ? await res.json() : await res.text();
+    } catch (_e) {
+      body = null;
+    }
+    if (!res.ok) {
+      let detail = '';
+      if (body && typeof body === 'object') {
+        const d = body.detail !== undefined ? body.detail : body.message;
+        if (d !== null && typeof d === 'object') {
+          // The API returns structured 404 detail like {error, hint}.
+          detail = [d.error, d.hint].filter(Boolean).join(' — ') || JSON.stringify(d).slice(0, 300);
+        } else if (d) {
+          detail = String(d);
+        }
+      } else if (typeof body === 'string') {
+        detail = body.slice(0, 240);
+      }
+      return { ok: false, status: res.status, body: body, error: detail || ('HTTP ' + res.status) };
+    }
+    return { ok: true, status: res.status, body: body };
+  } catch (err) {
+    return { ok: false, status: 0, body: null, error: 'network: ' + (err && err.message ? err.message : String(err)) };
+  }
+}
+
+/** Human explanation for a failed call, tuned for "router not deployed yet". */
+function failNotice(label, res) {
+  if (!res) return '<strong>' + label + '</strong> failed for an unknown reason.';
+  if (res.status === 404) {
+    // A real 404 from the router carries a detail; a missing route returns the
+    // bare FastAPI "Not Found". Only the latter means "not deployed".
+    const detail = res.error || '';
+    if (detail && detail !== 'Not Found' && detail !== 'HTTP 404') {
+      return '<strong>' + label + ' returned 404.</strong> ' + esc(detail);
+    }
+    return '<strong>' + label + ' is not deployed (404).</strong> The media-jobs router is an optional ' +
+           'feature: the API starts without it and logs it as DISABLED. Everything else on this page still works. ' +
+           'Enable <code>backend/api/jobs.py</code> and reload.';
+  }
+  if (res.status === 0) {
+    return '<strong>Backend unreachable.</strong> ' + esc(res.error || '') +
+           ' — is the API still running on <code>' + esc(API_BASE) + '</code>?';
+  }
+  return '<strong>' + label + ' failed (HTTP ' + res.status + ').</strong> ' + esc(res.error || '');
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   Section switching
+   ────────────────────────────────────────────────────────────────── */
+
+const SECTION_TABS = ['video', 'photo', 'dataset', 'jobs', 'instance'];
+
+function showSection(name) {
+  SECTION_TABS.forEach(function (n) {
+    const btn = document.getElementById('st-' + n);
+    if (btn) {
+      const on = n === name;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-selected', on ? 'true' : 'false');
+    }
+  });
+
+  const isMedia = (name === 'video' || name === 'photo');
+  document.getElementById('sec-media').classList.toggle('active', isMedia);
+  document.getElementById('sec-dataset').classList.toggle('active', name === 'dataset');
+  document.getElementById('sec-jobs').classList.toggle('active', name === 'jobs');
+  document.getElementById('sec-instance').classList.toggle('active', name === 'instance');
+
+  if (isMedia) {
+    document.getElementById('form-video').style.display = (name === 'video') ? '' : 'none';
+    document.getElementById('form-photo').style.display = (name === 'photo') ? '' : 'none';
+    setText('media-form-title', name === 'video' ? 'Video Input' : 'Photo Input');
+    setText('media-endpoint-label', name === 'video' ? 'POST /jobs/video' : 'POST /jobs/image');
+  }
+
+  if (name === 'jobs') fetchRecentJobs();
+  if (name === 'instance') startInstancePolling();
+  else stopInstancePolling();
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   Live instance — the platform embedded in this page
+   ────────────────────────────────────────────────────────────────── */
+
+let instTimer = null;
+
+function showInstance(src, btn) {
+  document.getElementById('inst-frame').src = src;
+  setText('inst-url', API_BASE + src);
+  Array.prototype.forEach.call(document.querySelectorAll('.inst-btn'), function (b) {
+    b.classList.toggle('active', b === btn);
+  });
+}
+
+function reloadInstance() {
+  const f = document.getElementById('inst-frame');
+  // Reassigning src rather than contentWindow.location.reload(): the frame is
+  // same-origin so either works, but this also resets a page the visitor may
+  // have navigated inside the frame.
+  f.src = f.src;
+}
+
+function popOutInstance() {
+  const f = document.getElementById('inst-frame');
+  const url = f.getAttribute('src') || '/app';
+  window.open(url, 'anpr-popout', 'width=1500,height=900');
+}
+
+async function instClock(action) {
+  const path = action === 'start' ? '/simulation/start?speed=60' : '/simulation/pause';
+  const res = await apiFetch(path, { method: 'POST' });
+  if (res.ok) renderInstClock(res.body);
+  else setText('inst-clock', 'clock unavailable');
+}
+
+function renderInstClock(s) {
+  if (!s) return;
+  const promoted = getPath(s, 'counters.events_promoted');
+  setText('inst-clock',
+    String(s.state || '—') + ' @ ' + (s.speed || '—') + 'x · ' +
+    fmtInt(promoted) + ' ingested');
+}
+
+function startInstancePolling() {
+  if (instTimer) return;
+  const poll = async function () {
+    const res = await apiFetch('/simulation/status');
+    if (res.ok) renderInstClock(res.body);
+    else setText('inst-clock', 'clock offline');
+  };
+  poll();
+  instTimer = setInterval(poll, 3000);
+}
+
+function stopInstancePolling() {
+  if (instTimer) { clearInterval(instTimer); instTimer = null; }
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   Bundled sample clips (read server-side via source_path)
+   ────────────────────────────────────────────────────────────────── */
+
+const ARCHIVE_DIR = '/Users/aarushsharma/Documents/SIH/archive/';
+
+const SAMPLES = [
+  { file: 'Automatic Number Plate Recognition (ANPR) _ Vehicle Number Plate Recognition (1).mp4', label: 'ANPR demo clip', size: '8 MB', note: 'best / quickest plate demo' },
+  { file: 'Traffic Control CCTV.mp4', label: 'Traffic Control CCTV', size: '184 MB', note: 'dense CCTV traffic' },
+  { file: 'pexels-casey-whalen-6571483 (2160p).mp4', label: 'pexels casey-whalen', size: '47 MB', note: '2160p' },
+  { file: 'pexels-christopher-schultz-5927708 (1080p).mp4', label: 'pexels christopher-schultz', size: '10 MB', note: '1080p' },
+  { file: 'pexels-george-morina-5222550 (2160p).mp4', label: 'pexels george-morina A', size: '71 MB', note: '2160p' },
+  { file: 'pexels-george-morina-5293898 (1080p).mp4', label: 'pexels george-morina B', size: '14 MB', note: '1080p' },
+  { file: 'pexels-george-morina-6719160 (2160p).mp4', label: 'pexels george-morina C', size: '115 MB', note: '2160p' },
+  { file: 'pexels-taryn-elliott-5309381 (1080p).mp4', label: 'pexels taryn-elliott', size: '8 MB', note: '1080p' }
+];
+
+function initSamples() {
+  const sel = document.getElementById('v-sample');
+  if (!sel) return;
+  SAMPLES.forEach(function (s, i) {
+    const opt = document.createElement('option');
+    opt.value = ARCHIVE_DIR + s.file;                       // absolute path, sent as form field
+    opt.textContent = '[' + i + '] ' + s.label + ' · ' + s.size + ' · ' + s.note;
+    sel.appendChild(opt);
+  });
+  sel.selectedIndex = 1; // default to the quickest, most convincing clip
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   Job run state
+   ────────────────────────────────────────────────────────────────── */
+
+let currentJobId = null;
+let ws = null;
+let pollTimer = null;
+let computeTimer = null;
+let seenPlateKeys = new Set();
+let plateRows = [];           // newest first
+let terminalReached = false;
+
+function setRunning(running) {
+  ['v-submit', 'p-submit'].forEach(function (id) {
+    const el = document.getElementById(id);
+    if (el) el.disabled = running;
+  });
+  ['v-cancel', 'p-cancel', 'v-stop', 'p-stop'].forEach(function (id) {
+    const el = document.getElementById(id);
+    if (el) el.disabled = !running;
+  });
+}
+
+/** Ask the server to stop the job at the next frame; plates read so far are kept. */
+async function cancelJob() {
+  if (!currentJobId) return;
+  const id = currentJobId;
+  showNotice('run-notice', 'info', 'Requesting cancel of job <strong>' + esc(id) + '</strong> …');
+  const res = await apiFetch('/jobs/' + encodeURIComponent(id) + '/cancel', { method: 'POST' });
+  if (!res.ok) {
+    showNotice('run-notice', 'err', failNotice('POST /jobs/' + id + '/cancel', res));
+    return;
+  }
+  showNotice('run-notice', 'warn',
+    '<strong>Cancel requested.</strong> The job stops at the next frame and keeps every plate it has ' +
+    'already read — the run will report as CANCELLED, not FAILED.');
+}
+
+function updateSandboxFlag() {
+  const videoOn = document.getElementById('v-sandbox');
+  const photoOn = document.getElementById('p-sandbox');
+  const isPhoto = document.getElementById('st-photo').classList.contains('active');
+  const on = isPhoto ? (photoOn && photoOn.checked) : (videoOn && videoOn.checked);
+  const flag = document.getElementById('sandbox-flag');
+  if (!flag) return;
+  flag.classList.toggle('off', !on);
+  flag.textContent = on ? '◆ ISOLATED SANDBOX' : '⚠ WRITES TO MAIN DB';
+  flag.title = on
+    ? 'Sandbox mode: runs are isolated and the live city database is not written to.'
+    : 'Sandbox mode OFF: detections will be inserted into the main city database.';
+}
+
+function resetRunPanel() {
+  seenPlateKeys = new Set();
+  plateRows = [];
+  terminalReached = false;
+  setText('plate-count', '0 confirmed');
+  document.getElementById('plate-body').innerHTML =
+    '<tr><td colspan="5" class="muted" style="padding:10px;">No plates yet.</td></tr>';
+  ['c-device', 'c-cpu', 'c-rss', 'c-peak'].forEach(function (id) { setText(id, DASH); });
+  ['k-frames', 'k-fps', 'k-det', 'k-plates', 'k-elapsed', 'k-ocr'].forEach(function (id) { setText(id, DASH); });
+  ['s-frames', 's-fps', 's-det', 's-ocr', 's-tracks', 's-logged', 's-rejected',
+   's-toofew', 's-suppressed', 's-dropped', 's-inserted', 's-skipped'].forEach(function (id) { setText(id, DASH); });
+  setText('summary-state', 'pending');
+  const sr = document.getElementById('stats-report');
+  if (sr) { sr.textContent = ''; sr.style.display = 'none'; }
+  const skr = document.getElementById('skip-reasons');
+  if (skr) skr.innerHTML = '';
+  hideNotice('sandbox-proof');
+  setText('progress-text', DASH);
+  setText('status-text', 'STATUS: ' + DASH);
+  const fill = document.getElementById('pbar-fill');
+  fill.className = 'pbar-fill';
+  fill.style.width = '0%';
+  document.getElementById('stage-bars').innerHTML =
+    '<div class="hint">No timings yet — run a job to measure detect / ocr / log cost.</div>';
+}
+
+function closeStreams() {
+  if (ws) {
+    try { ws.onclose = null; ws.onerror = null; ws.close(); } catch (_e) {}
+    ws = null;
+  }
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
+function detachJob() {
+  closeStreams();
+  currentJobId = null;
+  setRunning(false);
+  setText('job-id-label', 'no job');
+  setText('transport-label', 'transport: detached');
+  setText('run-indicator', '● IDLE / NO JOB');
+  showNotice('run-notice', 'info',
+    'Detached from the job. It may still be running server-side — reopen it from ' +
+    '<strong>RECENT JOBS</strong>. Nothing was cancelled.');
+}
+
+/* ── submit: video ─────────────────────────────────────────────── */
+
+async function submitVideo() {
+  const sample = document.getElementById('v-sample').value;
+  const fileInput = document.getElementById('v-file');
+  const file = fileInput.files && fileInput.files[0];
+
+  if (!sample && !file) {
+    showNotice('run-notice', 'err',
+      '<strong>Nothing to run.</strong> Pick a bundled sample clip or choose a video file.');
+    return;
+  }
+
+  // camera_id is required by the API (Form(...)), so refuse early with a readable
+  // message rather than letting FastAPI answer 422.
+  const camera = (document.getElementById('v-camera').value || '').trim();
+  if (!camera) {
+    showNotice('run-notice', 'err',
+      '<strong>camera_id is required.</strong> The API rejects a job without one — give the sandbox camera a name.');
+    return;
+  }
+
+  const fd = new FormData();
+  if (file) fd.append('file', file, file.name);
+  else fd.append('source_path', sample);
+  fd.append('camera_id', camera);
+
+  const ocrEvery = document.getElementById('v-ocr-every').value;
+  if (ocrEvery !== '') fd.append('ocr_every', String(parseInt(ocrEvery, 10)));
+
+  const minReads = document.getElementById('v-min-reads').value;
+  if (minReads !== '') fd.append('min_reads', String(parseInt(minReads, 10)));
+
+  const maxFrames = document.getElementById('v-max-frames').value;
+  if (maxFrames !== '') fd.append('max_frames', String(parseInt(maxFrames, 10)));
+
+  const region = (document.getElementById('v-region').value || '').trim();
+  if (region) fd.append('region', region);
+
+  fd.append('sandbox', document.getElementById('v-sandbox').checked ? 'true' : 'false');
+
+  const label = file ? ('upload: ' + file.name) : ('server file: ' + sample.split('/').pop());
+  await startJob('/jobs/video', fd, label);
+}
+
+/* ── submit: photo ─────────────────────────────────────────────── */
+
+async function submitPhoto() {
+  const fileInput = document.getElementById('p-file');
+  const file = fileInput.files && fileInput.files[0];
+  const srcPath = (document.getElementById('p-source').value || '').trim();
+
+  if (!file && !srcPath) {
+    showNotice('run-notice', 'err',
+      '<strong>Nothing to run.</strong> Choose a photo or give an absolute server-side path.');
+    return;
+  }
+
+  const camera = (document.getElementById('p-camera').value || '').trim();
+  if (!camera) {
+    showNotice('run-notice', 'err',
+      '<strong>camera_id is required.</strong> The API rejects a job without one.');
+    return;
+  }
+
+  const fd = new FormData();
+  if (file) fd.append('file', file, file.name);
+  else fd.append('source_path', srcPath);
+  fd.append('camera_id', camera);
+
+  const region = (document.getElementById('p-region').value || '').trim();
+  if (region) fd.append('region', region);
+
+  fd.append('sandbox', document.getElementById('p-sandbox').checked ? 'true' : 'false');
+
+  const label = file ? ('upload: ' + file.name) : ('server file: ' + srcPath.split('/').pop());
+  await startJob('/jobs/image', fd, label);
+}
+
+async function startJob(endpoint, formData, sourceLabel) {
+  closeStreams();
+  resetRunPanel();
+  setRunning(true);
+  showNotice('run-notice', 'info', 'Submitting <code>POST ' + esc(endpoint) + '</code> … ' + esc(sourceLabel));
+  setText('run-indicator', '● SUBMITTING…');
+
+  const res = await apiFetch(endpoint, { method: 'POST', body: formData });
+  if (!res.ok) {
+    setRunning(false);
+    setText('run-indicator', '● SUBMIT FAILED');
+    showNotice('run-notice', 'err', failNotice('POST ' + endpoint, res));
+    return;
+  }
+
+  const jobId = pick(res.body, ['job_id', 'jobId', 'id', 'job.job_id', 'job.id']);
+  if (!jobId) {
+    setRunning(false);
+    setText('run-indicator', '● NO JOB ID');
+    showNotice('run-notice', 'err',
+      '<strong>The job was accepted but no job id came back.</strong> Response was: <code>' +
+      esc(JSON.stringify(res.body).slice(0, 300)) + '</code>');
+    return;
+  }
+
+  attachToJob(String(jobId), sourceLabel);
+  // Some backends return the first status snapshot inline.
+  renderStatus(res.body);
+}
+
+function attachToJob(jobId, sourceLabel) {
+  currentJobId = jobId;
+  setText('job-id-label', 'job ' + jobId);
+  setText('run-indicator', '● RUNNING / ' + jobId);
+  showNotice('run-notice', 'ok',
+    '<strong>Job ' + esc(jobId) + ' accepted.</strong> ' + esc(sourceLabel || '') +
+    ' — streaming progress.');
+  openWebSocket(jobId);
+  pollOnce(jobId); // immediate first paint, don't wait for the socket
+}
+
+function openWebSocket(jobId) {
+  let url;
+  try {
+    url = API_BASE.replace(/^http/, 'ws') + '/ws/jobs/' + encodeURIComponent(jobId);
+    ws = new WebSocket(url);
+  } catch (_e) {
+    setText('transport-label', 'transport: polling (ws unavailable)');
+    startPolling(jobId);
+    return;
+  }
+
+  ws.onopen = function () {
+    setText('transport-label', 'transport: websocket');
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  };
+
+  ws.onmessage = function (evt) {
+    let data = null;
+    try { data = JSON.parse(evt.data); } catch (_e) { return; }
+    renderStatus(data);
+  };
+
+  ws.onerror = function () {
+    // onclose fires next; polling fallback is wired there so we don't double-start.
+    setText('transport-label', 'transport: polling (ws refused)');
+  };
+
+  ws.onclose = function () {
+    ws = null;
+    if (terminalReached) {
+      setText('transport-label', 'transport: closed (job finished)');
+      return;
+    }
+    setText('transport-label', 'transport: polling (ws closed)');
+    if (currentJobId) startPolling(currentJobId);
+  };
+}
+
+function startPolling(jobId) {
+  if (pollTimer) return;
+  pollTimer = setInterval(function () { pollOnce(jobId); }, 1000);
+}
+
+async function pollOnce(jobId) {
+  if (!jobId) return;
+  const res = await apiFetch('/jobs/' + encodeURIComponent(jobId));
+  if (!res.ok) {
+    if (res.status === 404 || res.status === 0) {
+      closeStreams();
+      setRunning(false);
+      showNotice('run-notice', 'err', failNotice('GET /jobs/' + jobId, res));
+    }
+    return;
+  }
+  renderStatus(res.body);
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   Rendering a job status dict
+   ────────────────────────────────────────────────────────────────── */
+
+function renderStatus(job) {
+  if (!job || typeof job !== 'object') return;
+
+  const status = String(pickScalar(job, ['state', 'status', 'job_status']) || 'UNKNOWN').toUpperCase();
+  const stats = pick(job, ['stats', 'pipeline_stats', 'pipeline']) || {};
+  const compute = pick(job, ['compute', 'compute_summary', 'resources']) || {};
+
+  /* ── progress ── */
+  const frames = pickNum(job, [
+    'progress.frames_processed', 'progress.frames', 'progress.frame', 'frames_processed',
+    'frames', 'counters.frames_processed', 'counters.frames', 'stats.frames'
+  ]);
+  const totalFrames = pickNum(job, [
+    'progress.total_frames', 'progress.frames_total', 'total_frames', 'frames_total',
+    'max_frames', 'params.max_frames'
+  ]);
+  let percent = pickNum(job, ['progress.percent', 'progress.pct', 'progress.progress', 'percent', 'pct']);
+  if (percent === undefined && typeof getPath(job, 'progress') === 'number') {
+    percent = Number(getPath(job, 'progress'));
+  }
+  if (percent === undefined && frames !== undefined && totalFrames) {
+    percent = (frames / totalFrames) * 100;
+  }
+  if (percent !== undefined && percent <= 1 && totalFrames && frames && frames > 1) {
+    percent = percent * 100; // tolerate a 0-1 fraction
+  }
+
+  const fill = document.getElementById('pbar-fill');
+  const pbar = fill.parentElement;
+  const isTerminal = (status === 'DONE' || status === 'FAILED' || status === 'COMPLETE' ||
+                      status === 'COMPLETED' || status === 'ERROR' || status === 'CANCELLED');
+
+  if (isTerminal) {
+    fill.className = 'pbar-fill' + (status === 'FAILED' || status === 'ERROR' ? ' failed' : '');
+    fill.style.width = '100%';
+    pbar.setAttribute('aria-valuenow', '100');
+  } else if (percent !== undefined && Number.isFinite(percent)) {
+    const clamped = Math.max(0, Math.min(100, percent));
+    fill.className = 'pbar-fill';
+    fill.style.width = clamped.toFixed(1) + '%';
+    pbar.setAttribute('aria-valuenow', clamped.toFixed(0));
+  } else if (status === 'RUNNING') {
+    fill.className = 'pbar-fill indeterminate';
+    pbar.removeAttribute('aria-valuenow');
+  }
+
+  let ptext;
+  if (frames !== undefined && totalFrames) ptext = fmtInt(frames) + ' / ' + fmtInt(totalFrames) + ' frames';
+  else if (frames !== undefined) ptext = fmtInt(frames) + ' frames processed';
+  else ptext = DASH;
+  if (percent !== undefined && Number.isFinite(percent)) ptext += '  ·  ' + fmtNum(Math.min(100, percent), 0) + '%';
+  setText('progress-text', ptext);
+
+  const statusColor = (status === 'DONE' || status === 'COMPLETE' || status === 'COMPLETED') ? 'green'
+    : (status === 'FAILED' || status === 'ERROR') ? 'red'
+    : (status === 'RUNNING') ? 'cyan' : 'amber';
+  const stEl = document.getElementById('status-text');
+  stEl.innerHTML = 'STATUS: <span class="' + statusColor + '">' + esc(status) + '</span>';
+
+  /* ── counters ── */
+  const detections = pickNum(job, [
+    'progress.detections', 'counters.detections', 'stats.detections', 'detections', 'counts.detections'
+  ]);
+  const uniquePlates = pickNum(job, [
+    'progress.unique_plates', 'plate_count', 'counters.unique_plates', 'unique_plates',
+    'plates_found', 'stats.logged'
+  ]);
+  const fps = pickNum(job, [
+    'progress.fps', 'counters.current_fps', 'counters.fps', 'current_fps', 'stats.fps', 'fps'
+  ]);
+  const elapsed = pickNum(job, [
+    'stats.elapsed_s', 'compute.elapsed_s', 'elapsed', 'elapsed_s', 'elapsed_seconds',
+    'stats.elapsed', 'progress.elapsed'
+  ]);
+  const ocrCalls = pickNum(job, ['progress.ocr_calls', 'stats.ocr_calls', 'counters.ocr_calls', 'ocr_calls']);
+
+  setText('k-frames', frames === undefined ? DASH : fmtInt(frames));
+  setText('k-fps', fps === undefined ? DASH : fmtNum(fps, 1));
+  setText('k-det', detections === undefined ? DASH : fmtInt(detections));
+  setText('k-plates', uniquePlates === undefined ? DASH : fmtInt(uniquePlates));
+  setText('k-elapsed', elapsed === undefined ? DASH : fmtSecs(elapsed));
+  setText('k-ocr', ocrCalls === undefined ? DASH : fmtInt(ocrCalls));
+
+  /* ── plates ── */
+  // A running job exposes a rolling `recent_plates`; a finished one exposes the
+  // full `plates` list. Merge both — mergePlates() de-duplicates.
+  ['recent_plates', 'plates', 'recent', 'latest_plates', 'plate_reads'].forEach(function (k) {
+    const arr = getPath(job, k);
+    if (Array.isArray(arr) && arr.length) mergePlates(arr);
+  });
+
+  /* ── compute ── */
+  renderCompute(compute, stats);
+
+  /* ── pipeline report ── */
+  renderReport(job, stats);
+
+  /* ── text report + isolation proof ── */
+  const report = pickScalar(job, ['stats_report']);
+  const reportEl = document.getElementById('stats-report');
+  if (reportEl) {
+    if (report) {
+      reportEl.textContent = String(report);
+      reportEl.style.display = '';
+    } else {
+      reportEl.style.display = 'none';
+    }
+  }
+  const sbPath = pickScalar(job, ['sandbox_db_path']);
+  const sbEl = document.getElementById('sandbox-proof');
+  if (sbEl) {
+    if (sbPath) {
+      sbEl.className = 'notice ok';
+      sbEl.innerHTML = '<strong>Isolation proof.</strong> Events for this run were written to a separate ' +
+        'sandbox database: <code>' + esc(String(sbPath)) + '</code>. The live city database was not touched.';
+    } else {
+      sbEl.className = 'notice info hidden';
+    }
+  }
+
+  /* ── terminal handling ── */
+  if (isTerminal && !terminalReached) {
+    terminalReached = true;
+    setRunning(false);
+    closeStreams();
+    setText('summary-state', status);
+    if (status === 'FAILED' || status === 'ERROR') {
+      const msg = pick(job, ['error', 'message', 'detail', 'traceback', 'exception']);
+      showNotice('run-notice', 'err',
+        '<strong>Job failed.</strong> ' + (msg ? esc(String(msg).slice(0, 600)) : 'No error detail was returned.'));
+      setText('run-indicator', '● JOB FAILED');
+    } else {
+      const sandboxOn = pick(job, ['sandbox', 'params.sandbox', 'isolated']);
+      const isoNote = (sandboxOn === true || sandboxOn === 'true')
+        ? ' Ran in an <span class="green">isolated sandbox instance</span> — the live city database was not modified.'
+        : '';
+      showNotice('run-notice', 'ok',
+        '<strong>Run complete.</strong> ' + fmtInt(frames) + ' frames, ' +
+        fmtInt(uniquePlates) + ' unique plates.' + isoNote);
+      setText('run-indicator', '● RUN COMPLETE');
+    }
+  }
+}
+
+function plateKey(p) {
+  return [
+    pick(p, ['plate', 'plate_text', 'text', 'number', 'plate_number']) || '?',
+    pick(p, ['track_id', 'track', 'tid']) || '?',
+    pick(p, ['frame', 'frame_idx', 'frame_number', 'frame_no']) || '?',
+    pick(p, ['timestamp', 'ts', 'time', 'captured_at']) || '?'
+  ].join('|');
+}
+
+function mergePlates(list) {
+  let added = 0;
+  for (const p of list) {
+    if (!p || typeof p !== 'object') continue;
+    const key = plateKey(p);
+    if (seenPlateKeys.has(key)) continue;
+    seenPlateKeys.add(key);
+    plateRows.unshift({
+      key: key,
+      data: p,
+      fresh: true,
+      provisional: getPath(p, 'provisional') === true
+    });
+    added++;
+  }
+  if (added === 0) return;
+  if (plateRows.length > 600) plateRows.length = 600;
+  renderPlateTable();
+}
+
+function renderPlateTable() {
+  const body = document.getElementById('plate-body');
+  const toggle = document.getElementById('show-provisional');
+  const showProvisional = !!(toggle && toggle.checked);
+
+  const confirmed = plateRows.filter(function (r) { return !r.provisional; });
+  const provisional = plateRows.filter(function (r) { return r.provisional; });
+  const visible = showProvisional ? plateRows : confirmed;
+
+  setText('plate-count',
+    fmtInt(confirmed.length) + ' confirmed' +
+    (provisional.length ? ' · ' + fmtInt(provisional.length) + ' provisional' : ''));
+
+  if (visible.length === 0) {
+    // Distinguish "nothing read" from "nothing has survived the vote yet", because
+    // those two states call for completely different reactions from the operator.
+    const msg = (provisional.length > 0 && !showProvisional)
+      ? 'No plate has passed the multi-frame vote yet. ' + fmtInt(provisional.length) +
+        ' provisional raw read(s) are hidden — tick the box above to see them.'
+      : 'No plates yet.';
+    body.innerHTML = '<tr><td colspan="5" class="muted" style="padding:10px;">' + msg + '</td></tr>';
+    return;
+  }
+
+  const html = visible.map(function (row) {
+    const p = row.data;
+    const raw = pickScalar(p, ['plate', 'plate_text', 'text', 'number', 'plate_number']);
+    const display = pickScalar(p, ['display', 'formatted']);
+    const conf = pickNum(p, ['confidence', 'conf', 'plate_confidence', 'score', 'ocr_confidence']);
+    const track = pickScalar(p, ['track_id', 'track', 'tid']);
+    const frame = pickNum(p, ['frame', 'frame_idx', 'frame_number', 'frame_no']);
+    const offset = pickNum(p, ['video_offset_s', 'offset_s']);
+    const ts = pickScalar(p, ['timestamp', 'ts', 'time', 'captured_at']);
+    const fixes = pickNum(p, ['ocr_fixes']);
+    const isProv = row.provisional;
+    const cls = row.fresh ? ' class="row-new"' : '';
+    row.fresh = false;
+
+    // A confidence below ~0.6 is worth flagging rather than presenting flat.
+    const confCls = (conf === undefined) ? 'muted'
+      : (conf >= 0.8 ? 'green' : conf >= 0.6 ? 'amber' : 'red');
+    const fixNote = (fixes !== undefined && fixes > 0)
+      ? ' <span class="muted" title="characters repaired by the OCR grammar pass">+' + fmtInt(fixes) + '</span>'
+      : '';
+    const provNote = isProv
+      ? ' <span class="amber" title="Provisional: a single raw OCR read taken mid-track, before the cross-frame vote. Expect garbage here — that is exactly what the vote filters out.">~prov</span>'
+      : '';
+    const plateCls = isProv ? 'muted' : 'plate-txt';
+
+    return '<tr' + cls + '>' +
+      '<td class="' + plateCls + '" title="' + esc(raw || '') + '">' + txt(display || raw) + provNote + '</td>' +
+      '<td class="' + confCls + '">' + (conf === undefined ? DASH : fmtPct01(conf, 1)) + fixNote + '</td>' +
+      '<td class="muted">' + (track === undefined ? DASH : esc(track)) + '</td>' +
+      '<td class="muted">' + (frame === undefined ? DASH : fmtInt(frame)) +
+        (offset === undefined ? '' : ' <span style="opacity:0.6">@' + fmtNum(offset, 1) + 's</span>') + '</td>' +
+      '<td class="muted">' + fmtTs(ts) + '</td>' +
+      '</tr>';
+  }).join('');
+  body.innerHTML = html;
+}
+
+function renderCompute(compute, stats) {
+  // The job's compute summary nests the device block, so the nested paths come
+  // first: a bare `device` key here is an object, not a string.
+  const device = pickScalar(compute, [
+    'device.device', 'device.device_name', 'device', 'device_name', 'accelerator', 'backend'
+  ]) || pickScalar(stats, ['device']);
+  const deviceName = pickScalar(compute, ['device.device_name']);
+  const cpu = pickNum(compute, [
+    'process_cpu_percent_avg', 'current.process_cpu_percent', 'cpu_percent', 'process_cpu_percent', 'cpu_pct'
+  ]);
+  const rss = pickNum(compute, [
+    'process_rss_mb_avg', 'current.process_rss_mb', 'rss_mb', 'process_rss_mb', 'memory_mb'
+  ]);
+  const peak = pickNum(compute, [
+    'process_rss_mb_peak', 'peak_rss_mb', 'peak_rss', 'max_rss_mb'
+  ]);
+
+  if (device !== undefined) {
+    setText('c-device', String(device).toUpperCase() + (deviceName && deviceName !== device ? ' · ' + deviceName : ''));
+  }
+  if (cpu !== undefined) setText('c-cpu', fmtPct(cpu, 1));
+  if (rss !== undefined) setText('c-rss', fmtMB(rss));
+  if (peak !== undefined) setText('c-peak', fmtMB(peak));
+
+  const perStage = pick(stats, ['per_stage_s', 'per_stage', 'stages', 'timings', 'stage_seconds']) ||
+                   pick(compute, ['per_stage_s', 'per_stage', 'stages']);
+  if (perStage && typeof perStage === 'object') renderStageBars(perStage);
+}
+
+const STAGE_ORDER = ['detect', 'ocr', 'log'];
+const STAGE_ALIASES = {
+  detect: ['detect', 'detection', 'detector'],
+  ocr: ['ocr', 'recognise', 'recognize', 'read'],
+  log: ['log', 'logging', 'persist', 'db', 'write']
+};
+
+function renderStageBars(perStage) {
+  const el = document.getElementById('stage-bars');
+  const entries = [];
+
+  // Canonical stages first, then anything else the backend reported.
+  const usedKeys = new Set();
+  STAGE_ORDER.forEach(function (name) {
+    for (const alias of STAGE_ALIASES[name]) {
+      const v = perStage[alias];
+      const n = Number(v);
+      if (v !== undefined && v !== null && Number.isFinite(n)) {
+        entries.push({ name: name, cls: name, secs: n });
+        usedKeys.add(alias);
+        return;
+      }
+    }
+  });
+  Object.keys(perStage).forEach(function (k) {
+    if (usedKeys.has(k)) return;
+    const n = Number(perStage[k]);
+    if (!Number.isFinite(n)) return;
+    if (entries.some(function (e) { return e.name === k; })) return;
+    entries.push({ name: k, cls: 'other', secs: n });
+  });
+
+  if (entries.length === 0) {
+    el.innerHTML = '<div class="hint">Backend returned no per-stage timings for this run.</div>';
+    return;
+  }
+
+  const total = entries.reduce(function (a, e) { return a + Math.max(0, e.secs); }, 0);
+  el.innerHTML = entries.map(function (e) {
+    const pct = total > 0 ? (Math.max(0, e.secs) / total) * 100 : 0;
+    return '<div class="stage-row">' +
+      '<div class="stage-name">' + esc(e.name) + '</div>' +
+      '<div class="stage-track"><div class="stage-fill ' + e.cls + '" style="width:' + pct.toFixed(1) + '%"></div></div>' +
+      '<div class="stage-val">' + fmtSecs(e.secs) + ' · ' + fmtNum(pct, 1) + '%</div>' +
+      '</div>';
+  }).join('') +
+  '<div class="hint tight">Total measured stage time: ' + fmtSecs(total) + '.</div>';
+}
+
+function renderReport(job, stats) {
+  const g = function (keys) { return pickNum(stats, keys) !== undefined ? pickNum(stats, keys) : pickNum(job, keys); };
+
+  const frames = g(['frames', 'frames_processed', 'total_frames']);
+  const fps = g(['fps', 'throughput_fps', 'avg_fps']);
+  const det = g(['detections']);
+  const ocr = g(['ocr_calls', 'ocr']);
+  const tracks = g(['tracks_completed', 'tracks']);
+  const logged = g(['logged', 'plates_logged']);
+  const rejected = g(['rejected_by_grammar', 'rejected', 'grammar_rejected']);
+  const tooFew = g(['too_few_reads', 'too_few']);
+  const suppressed = g(['duplicates_suppressed', 'suppressed']);
+  const dropped = g(['dropped_frames']);
+  const inserted = pickNum(job, [
+    'ingestion.events_inserted', 'events_inserted', 'db.events_inserted', 'events.inserted', 'inserted'
+  ]);
+  const skipped = pickNum(job, [
+    'ingestion.events_skipped', 'events_skipped', 'db.events_skipped', 'events.skipped', 'skipped'
+  ]);
+  if (dropped !== undefined) setText('s-dropped', fmtInt(dropped));
+
+  // Why events were skipped is the interesting part when inserted < logged.
+  const reasons = pickArray(job, ['ingestion.skip_reasons', 'skip_reasons']);
+  const rEl = document.getElementById('skip-reasons');
+  if (rEl) {
+    if (reasons.length) {
+      rEl.innerHTML = '<div class="field-label" style="margin-top:7px;">Skip reasons</div>' +
+        reasons.slice(0, 10).map(function (r) {
+          const s = (r !== null && typeof r === 'object') ? JSON.stringify(r) : String(r);
+          return '<div class="hint">· ' + esc(s.slice(0, 180)) + '</div>';
+        }).join('');
+    } else {
+      rEl.innerHTML = '';
+    }
+  }
+
+  if (frames !== undefined) setText('s-frames', fmtInt(frames));
+  if (fps !== undefined) setText('s-fps', fmtNum(fps, 2) + ' fps');
+  if (det !== undefined) setText('s-det', fmtInt(det));
+  if (ocr !== undefined) setText('s-ocr', fmtInt(ocr));
+  if (tracks !== undefined) setText('s-tracks', fmtInt(tracks));
+  if (logged !== undefined) setText('s-logged', fmtInt(logged));
+  if (rejected !== undefined) setText('s-rejected', fmtInt(rejected));
+  if (tooFew !== undefined) setText('s-toofew', fmtInt(tooFew));
+  if (suppressed !== undefined) setText('s-suppressed', fmtInt(suppressed));
+  if (inserted !== undefined) setText('s-inserted', fmtInt(inserted));
+  if (skipped !== undefined) setText('s-skipped', fmtInt(skipped));
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   Idle compute snapshot
+   ────────────────────────────────────────────────────────────────── */
+
+let computeUnavailable = false;
+
+async function fetchComputeSnapshot() {
+  if (computeUnavailable) return;
+  // While a job is attached — running or just finished — the job's own compute
+  // summary is the authoritative figure (it has the peak, the live snapshot does
+  // not). Polling over it would silently replace measured peaks with idle noise.
+  if (currentJobId) return;
+  const res = await apiFetch('/jobs/system/compute');
+  if (!res.ok) {
+    if (res.status === 404) {
+      computeUnavailable = true;
+      if (computeTimer) { clearInterval(computeTimer); computeTimer = null; }
+      showNotice('compute-notice', 'warn',
+        '<strong>Live compute snapshot unavailable (404).</strong> ' +
+        '<code>GET /jobs/system/compute</code> ships with the media-jobs router, which is currently disabled. ' +
+        'Per-stage timings will still populate from a job report if one runs.');
+    }
+    return;
+  }
+  hideNotice('compute-notice');
+  const b = res.body || {};
+  // Real shape: { device: {...}, current: {...}, peak_rss_mb, telemetry_available }
+  const device = pickScalar(b, [
+    'device.device', 'device.device_name', 'device_info.device', 'hardware.device', 'accelerator', 'device'
+  ]);
+  const deviceName = pickScalar(b, ['device.device_name']);
+  const cpu = pickNum(b, [
+    'current.process_cpu_percent', 'cpu_percent', 'process.cpu_percent', 'process_cpu_percent'
+  ]);
+  const rss = pickNum(b, ['current.process_rss_mb', 'rss_mb', 'process.rss_mb', 'memory.rss_mb']);
+  const peak = pickNum(b, ['peak_rss_mb', 'current.peak_rss_mb', 'process.peak_rss_mb']);
+  setText('c-device', device === undefined ? DASH
+    : String(device).toUpperCase() + (deviceName && deviceName !== device ? ' · ' + deviceName : ''));
+  setText('c-cpu', cpu === undefined ? DASH : fmtPct(cpu, 1));
+  setText('c-rss', rss === undefined ? DASH : fmtMB(rss));
+  setText('c-peak', peak === undefined ? DASH : fmtMB(peak));
+
+  const cores = pickNum(b, [
+    'device.cpu_count_logical', 'device.cpu_count', 'cpu_cores', 'hardware.logical_cores', 'logical_cores'
+  ]);
+  const ramMb = pickNum(b, ['device.total_ram_mb', 'total_ram_mb']);
+  const ramGb = pickNum(b, ['total_ram_gb', 'device.total_ram_gb', 'hardware.total_ram_gb']);
+  const torch = pickScalar(b, ['device.torch_version', 'torch_version', 'hardware.torch_version']);
+  const bits = [];
+  if (cores !== undefined) bits.push(fmtInt(cores) + ' cores');
+  if (ramGb !== undefined) bits.push(fmtNum(ramGb, 0) + ' GB RAM');
+  else if (ramMb !== undefined) bits.push(fmtNum(ramMb / 1024, 0) + ' GB RAM');
+  if (torch) bits.push('torch ' + torch);
+  setText('compute-src', bits.length ? bits.join(' · ') : 'GET /jobs/system/compute');
+
+  if (pickScalar(b, ['telemetry_available']) === false) {
+    showNotice('compute-notice', 'warn',
+      '<strong>Process telemetry is unavailable</strong> on this host (psutil missing), so CPU and RSS ' +
+      'cannot be reported. Per-stage timings still come from the pipeline itself.');
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   Recent jobs
+   ────────────────────────────────────────────────────────────────── */
+
+async function fetchRecentJobs() {
+  const body = document.getElementById('jobs-body');
+  showNotice('jobs-notice', 'info', 'Loading <code>GET /jobs</code> …');
+  const res = await apiFetch('/jobs');
+  if (!res.ok) {
+    body.innerHTML = '';
+    showNotice('jobs-notice', res.status === 404 ? 'warn' : 'err', failNotice('GET /jobs', res));
+    return;
+  }
+  let list = res.body;
+  if (!Array.isArray(list)) list = pick(res.body, ['jobs', 'items', 'results', 'data']) || [];
+  if (!Array.isArray(list) || list.length === 0) {
+    body.innerHTML = '';
+    showNotice('jobs-notice', 'info',
+      'No jobs have run yet. Submit a video or photo from the <strong>VIDEO</strong> tab and it will appear here.');
+    return;
+  }
+  hideNotice('jobs-notice');
+  body.innerHTML = list.map(function (j) {
+    const id = pickScalar(j, ['job_id', 'id', 'jobId']);
+    const status = String(pickScalar(j, ['state', 'status']) || DASH).toUpperCase();
+    const kind = pickScalar(j, ['kind', 'type', 'job_type', 'media_type']);
+    const src = pickScalar(j, ['source', 'source_path', 'filename', 'file', 'input']);
+    const sandbox = getPath(j, 'sandbox');
+    const frames = pickNum(j, ['progress.frames_processed', 'frames', 'frames_processed', 'stats.frames']);
+    const plates = pickNum(j, [
+      'progress.unique_plates', 'plate_count', 'unique_plates', 'plates_found',
+      'counters.unique_plates', 'stats.logged'
+    ]);
+    const fps = pickNum(j, ['progress.fps', 'fps', 'stats.fps', 'counters.fps']);
+    const created = pickScalar(j, ['created_at', 'created', 'started_at', 'submitted_at', 'timestamp']);
+    const cls = (status === 'DONE' || status === 'COMPLETE' || status === 'COMPLETED') ? 'green'
+      : (status === 'FAILED' || status === 'ERROR') ? 'red'
+      : (status === 'RUNNING') ? 'cyan' : 'amber';
+    const srcShort = src ? String(src).split('/').pop() : DASH;
+    const sbTxt = (sandbox === true || sandbox === 'true') ? '<span class="green">isolated</span>'
+      : (sandbox === false || sandbox === 'false') ? '<span class="amber">main db</span>' : DASH;
+    const openBtn = id
+      ? '<button class="cli-btn" style="padding:2px 6px; font-size:10px;" onclick="reopenJob(\'' +
+        esc(String(id)).replace(/'/g, '') + '\')">OPEN</button>'
+      : '';
+    return '<tr>' +
+      '<td class="muted">' + txt(id) + '</td>' +
+      '<td><span class="' + cls + '">' + esc(status) + '</span></td>' +
+      '<td class="muted">' + txt(kind) + '</td>' +
+      '<td title="' + esc(src || '') + '">' + esc(srcShort) + '</td>' +
+      '<td>' + sbTxt + '</td>' +
+      '<td>' + (frames === undefined ? DASH : fmtInt(frames)) + '</td>' +
+      '<td class="amber">' + (plates === undefined ? DASH : fmtInt(plates)) + '</td>' +
+      '<td>' + (fps === undefined ? DASH : fmtNum(fps, 1)) + '</td>' +
+      '<td class="muted">' + fmtTs(created) + '</td>' +
+      '<td>' + openBtn + '</td>' +
+      '</tr>';
+  }).join('');
+}
+
+async function reopenJob(jobId) {
+  closeStreams();
+  resetRunPanel();
+  showSection('video');
+  currentJobId = jobId;
+  setText('job-id-label', 'job ' + jobId);
+  setText('transport-label', 'transport: fetch');
+  showNotice('run-notice', 'info', 'Reopening job <strong>' + esc(jobId) + '</strong> …');
+
+  const res = await apiFetch('/jobs/' + encodeURIComponent(jobId));
+  if (!res.ok) {
+    showNotice('run-notice', 'err', failNotice('GET /jobs/' + jobId, res));
+    return;
+  }
+  renderStatus(res.body);
+
+  // Pull the full plate list, which may be longer than the rolling window.
+  const pRes = await apiFetch('/jobs/' + encodeURIComponent(jobId) + '/plates');
+  if (pRes.ok) {
+    let plates = pRes.body;
+    if (!Array.isArray(plates)) plates = pick(pRes.body, ['plates', 'items', 'results', 'data']) || [];
+    if (Array.isArray(plates)) mergePlates(plates);
+  }
+
+  const status = String(pick(res.body, ['status', 'state']) || '').toUpperCase();
+  if (status === 'RUNNING' || status === 'QUEUED' || status === 'PENDING') {
+    terminalReached = false;
+    setRunning(true);
+    attachToJob(jobId, 'reopened');
+  } else {
+    setRunning(false);
+    showNotice('run-notice', 'ok', 'Loaded finished job <strong>' + esc(jobId) + '</strong>.');
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   Dataset: example, templates, validation, submit
+   ────────────────────────────────────────────────────────────────── */
+
+const EXAMPLE_DATASET = {
+  cameras: [
+    {
+      camera_id: 'CAM-MG-ROAD-01',
+      name: 'MG Road Junction North',
+      location: 'MG Road x Brigade Road',
+      latitude: 12.9752,
+      longitude: 77.6068,
+      road: 'MG Road',
+      direction: 'NORTH',
+      speed_limit_kmh: 50
+    },
+    {
+      camera_id: 'CAM-ORR-14',
+      name: 'Outer Ring Road KM14',
+      location: 'ORR near Marathahalli',
+      latitude: 12.9569,
+      longitude: 77.7011,
+      road: 'Outer Ring Road',
+      direction: 'EAST',
+      speed_limit_kmh: 80
+    }
+  ],
+  events: [
+    {
+      camera_id: 'CAM-MG-ROAD-01',
+      timestamp: '2026-08-31T09:14:02+05:30',
+      plate: 'KA01AB1234',
+      plate_confidence: 0.94,
+      vehicle_type: 'CAR',
+      speed: 46.2
+    },
+    {
+      camera_id: 'CAM-ORR-14',
+      timestamp: '2026-08-31T09:18:47+05:30',
+      plate: 'KA01AB1234',
+      plate_confidence: 0.88,
+      vehicle_type: 'CAR',
+      speed: 71.5
+    }
+  ]
+};
+
+const CAMERA_COLS = ['camera_id', 'name', 'location', 'latitude', 'longitude', 'road', 'direction', 'speed_limit_kmh'];
+const EVENT_COLS = ['camera_id', 'timestamp', 'plate', 'plate_confidence', 'vehicle_type', 'speed'];
+
+/* The field contract is fetched from the server rather than hard-coded here.
+   GET /jobs/dataset/schema is the same object the parser enforces, so the table
+   this page shows cannot drift away from the format the endpoint accepts —
+   which is exactly what happens to a hand-copied table the first time a field
+   is added. The static EXAMPLE_DATASET above stays as the offline fallback. */
+let SERVER_SCHEMA = null;
+
+async function initExample() {
+  const el = document.getElementById('example-json');
+  if (el) el.textContent = JSON.stringify(EXAMPLE_DATASET, null, 2);
+
+  const res = await apiFetch('/jobs/dataset/schema');
+  if (!res.ok || !res.body || !res.body.artefacts) return;
+  SERVER_SCHEMA = res.body;
+
+  if (SERVER_SCHEMA.example && el) {
+    el.textContent = JSON.stringify(SERVER_SCHEMA.example, null, 2);
+  }
+  renderFieldContract(SERVER_SCHEMA);
+}
+
+function renderFieldContract(schema) {
+  const host = document.getElementById('field-contract');
+  if (!host) return;
+
+  const rows = [];
+  ['cameras', 'events'].forEach(function (artefact) {
+    const spec = schema.artefacts[artefact];
+    if (!spec) return;
+    rows.push('<tr><td colspan="4" class="cyan" style="padding-top:10px;">' +
+      esc(artefact) + '[]</td></tr>');
+    if (spec.identity_rule) {
+      rows.push('<tr><td colspan="4" class="hint" style="padding:2px 6px 6px; line-height:1.5;">' +
+        esc(spec.identity_rule) + '</td></tr>');
+    }
+    (spec.fields || []).forEach(function (f) {
+      let type = esc(f.type || '');
+      if (f.range) type += ' <span class="muted">' + f.range[0] + '..' + f.range[1] + '</span>';
+      if (f.format) type += ' <span class="muted">' + esc(f.format) + '</span>';
+      const req = f.required
+        ? '<span class="red">yes</span>'
+        : (f.requires_one_of ? '<span class="amber">one-of</span>' : '<span class="muted">no</span>');
+      const notes = [];
+      if (f.description) notes.push(esc(f.description));
+      if (f.enum) notes.push('<span class="muted">' + f.enum.map(esc).join(' · ') + '</span>');
+      if (f.default !== undefined) notes.push('<span class="muted">default ' + esc(f.default) + '</span>');
+      rows.push(
+        '<tr><td>' + esc(f.name) + '</td><td class="muted">' + type + '</td><td>' + req + '</td>' +
+        '<td class="hint" style="line-height:1.5;">' + notes.join('<br/>') + '</td></tr>'
+      );
+    });
+  });
+
+  const media = (schema.accepted_media || []).map(function (m) {
+    return '<li><strong>' + esc(m.format.toUpperCase()) + '</strong> (' +
+      (m.extensions || []).map(esc).join(', ') + ')<ul>' +
+      (m.shapes || []).map(function (s) { return '<li><code>' + esc(s) + '</code></li>'; }).join('') +
+      (m.notes || []).map(function (s) { return '<li class="muted">' + esc(s) + '</li>'; }).join('') +
+      '</ul></li>';
+  }).join('');
+
+  const lim = schema.limits || {};
+  host.innerHTML =
+    '<div class="notice info"><strong>Accepted formats</strong> ' +
+      '<span class="hint">— served live from <code>GET /jobs/dataset/schema</code>, ' +
+      'version ' + esc(schema.version) + '</span>' +
+      '<ul style="margin:6px 0 0 16px; line-height:1.7;">' + media + '</ul>' +
+    '</div>' +
+    '<table class="cli-table">' +
+      '<thead><tr><th>FIELD</th><th>TYPE</th><th>REQ</th><th>NOTES</th></tr></thead>' +
+      '<tbody>' + rows.join('') + '</tbody>' +
+    '</table>' +
+    '<div class="hint" style="margin-top:8px; line-height:1.6;">' +
+      'Limits: ' + fmtBytes(lim.max_upload_bytes) + ' per upload · ' +
+      fmtInt(lim.max_events) + ' events · ' + fmtInt(lim.max_cameras) + ' cameras. ' +
+      'A file with <em>any</em> row error is refused whole — half a city is worse than none, ' +
+      'because every trajectory would then be silently missing hops.' +
+    '</div>';
+}
+
+function copyExample(btn) {
+  const text = JSON.stringify(EXAMPLE_DATASET, null, 2);
+  const done = function (ok) {
+    const old = btn.textContent;
+    btn.textContent = ok ? 'COPIED ✓' : 'COPY FAILED';
+    setTimeout(function () { btn.textContent = old; }, 1400);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); });
+    return;
+  }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    done(ok);
+  } catch (_e) {
+    done(false);
+  }
+}
+
+/* The Mumbai demo dataset is served by the API, not bundled in this page:
+   the file a visitor downloads is then byte-for-byte the file the generator
+   wrote and the parser was tested against. */
+const SAMPLE_KEYS = {
+  json: 'mumbai-week',
+  cameras: 'mumbai-cameras-csv',
+  events: 'mumbai-events-csv'
+};
+
+async function downloadSample(which) {
+  const key = SAMPLE_KEYS[which];
+  const note = document.getElementById('sample-note');
+  note.textContent = 'fetching…';
+  try {
+    const res = await fetch(API_BASE + '/jobs/dataset/samples/' + key);
+    if (!res.ok) {
+      // The usual cause is that the generator has not been run on this server.
+      // The endpoint returns the exact command; showing it beats "404".
+      const body = await res.json().catch(function () { return null; });
+      note.innerHTML = '<span class="red">' +
+        esc((body && body.detail) || ('HTTP ' + res.status)) + '</span>';
+      return;
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = key.indexOf('cameras') > -1 ? 'mumbai_cameras.csv'
+              : key.indexOf('events') > -1 ? 'mumbai_events.csv'
+              : 'mumbai_week.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    note.innerHTML = '<span class="green">downloaded ' + fmtBytes(blob.size) +
+      ' — now pick it in the file field above and press VALIDATE.</span>';
+  } catch (e) {
+    note.innerHTML = '<span class="red">' + esc(String(e)) + '</span>';
+  }
+}
+
+function csvEscape(v) {
+  if (v === null || v === undefined) return '';
+  const s = String(v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+function downloadTemplate(kind) {
+  let filename, mime, content;
+  if (kind === 'json') {
+    filename = 'anpr-dataset-template.json';
+    mime = 'application/json';
+    content = JSON.stringify(EXAMPLE_DATASET, null, 2) + '\n';
+  } else if (kind === 'cameras.csv') {
+    filename = 'anpr-cameras-template.csv';
+    mime = 'text/csv';
+    content = CAMERA_COLS.join(',') + '\n' +
+      EXAMPLE_DATASET.cameras.map(function (c) {
+        return CAMERA_COLS.map(function (k) { return csvEscape(c[k]); }).join(',');
+      }).join('\n') + '\n';
+  } else {
+    filename = 'anpr-events-template.csv';
+    mime = 'text/csv';
+    content = EVENT_COLS.join(',') + '\n' +
+      EXAMPLE_DATASET.events.map(function (e) {
+        return EVENT_COLS.map(function (k) { return csvEscape(e[k]); }).join(',');
+      }).join('\n') + '\n';
+  }
+  try {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+  } catch (err) {
+    showNotice('d-notice', 'err',
+      '<strong>Could not build the template file.</strong> ' + esc(err && err.message ? err.message : String(err)));
+  }
+}
+
+/* ── CSV parsing (RFC-4180-ish: quotes, escaped quotes, CRLF) ───── */
+
+function parseCSV(text) {
+  const rows = [];
+  let row = [];
+  let field = '';
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else inQuotes = false;
+      } else field += ch;
+      continue;
+    }
+    if (ch === '"') { inQuotes = true; continue; }
+    if (ch === ',') { row.push(field); field = ''; continue; }
+    if (ch === '\r') continue;
+    if (ch === '\n') { row.push(field); rows.push(row); row = []; field = ''; continue; }
+    field += ch;
+  }
+  if (field !== '' || row.length > 0) { row.push(field); rows.push(row); }
+  return rows.filter(function (r) { return !(r.length === 1 && r[0].trim() === ''); });
+}
+
+function csvToObjects(text) {
+  const rows = parseCSV(text);
+  if (rows.length === 0) return { headers: [], objects: [] };
+  const headers = rows[0].map(function (h) { return h.trim().toLowerCase().replace(/\s+/g, '_'); });
+  const objects = rows.slice(1).map(function (r) {
+    const o = {};
+    headers.forEach(function (h, i) {
+      const v = r[i] === undefined ? '' : String(r[i]).trim();
+      if (v !== '') o[h] = v;
+    });
+    return o;
+  });
+  return { headers: headers, objects: objects };
+}
+
+/* ── validation ────────────────────────────────────────────────── */
+
+function isBlank(v) { return v === null || v === undefined || String(v).trim() === ''; }
+
+function validateCameras(rows) {
+  const errors = [];
+  const ids = new Set();
+  rows.forEach(function (r, i) {
+    const n = i + 1;
+    const add = function (m) { errors.push({ artefact: 'cameras', row: n, msg: m }); };
+    if (!r || typeof r !== 'object' || Array.isArray(r)) { add('not an object'); return; }
+
+    if (isBlank(r.camera_id)) add('camera_id is required');
+    else if (ids.has(String(r.camera_id))) add('duplicate camera_id "' + r.camera_id + '"');
+    else ids.add(String(r.camera_id));
+
+    ['latitude', 'longitude'].forEach(function (k) {
+      if (isBlank(r[k])) { add(k + ' is required'); return; }
+      const v = Number(r[k]);
+      if (!Number.isFinite(v)) { add(k + ' "' + r[k] + '" is not a number'); return; }
+      const lim = k === 'latitude' ? 90 : 180;
+      if (v < -lim || v > lim) add(k + ' ' + v + ' is outside ±' + lim);
+    });
+
+    if (!isBlank(r.speed_limit_kmh)) {
+      const v = Number(r.speed_limit_kmh);
+      if (!Number.isFinite(v)) add('speed_limit_kmh "' + r.speed_limit_kmh + '" is not a number');
+      else if (v <= 0) add('speed_limit_kmh must be > 0');
+    }
+  });
+  return { errors: errors, uniqueCameras: ids };
+}
+
+const ISO_RE = /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+
+function validateEvents(rows) {
+  const errors = [];
+  const cams = new Set();
+  const plates = new Set();
+  let minTs = null;
+  let maxTs = null;
+
+  rows.forEach(function (r, i) {
+    const n = i + 1;
+    const add = function (m) { errors.push({ artefact: 'events', row: n, msg: m }); };
+    if (!r || typeof r !== 'object' || Array.isArray(r)) { add('not an object'); return; }
+
+    if (isBlank(r.camera_id)) add('camera_id is required');
+    else cams.add(String(r.camera_id));
+
+    if (isBlank(r.plate)) add('plate is required');
+    else plates.add(String(r.plate).toUpperCase().replace(/\s+/g, ''));
+
+    if (isBlank(r.timestamp)) {
+      add('timestamp is required (ISO 8601, e.g. 2026-08-31T09:14:02+05:30)');
+    } else {
+      const raw = String(r.timestamp).trim();
+      const d = new Date(raw);
+      if (!ISO_RE.test(raw)) {
+        add('timestamp "' + raw + '" is not ISO 8601 (expected YYYY-MM-DDTHH:MM:SS[±HH:MM])');
+      } else if (isNaN(d.getTime())) {
+        add('timestamp "' + raw + '" is not a real date');
+      } else {
+        if (minTs === null || d < minTs) minTs = d;
+        if (maxTs === null || d > maxTs) maxTs = d;
+      }
+    }
+
+    if (!isBlank(r.plate_confidence)) {
+      const v = Number(r.plate_confidence);
+      if (!Number.isFinite(v)) add('plate_confidence "' + r.plate_confidence + '" is not a number');
+      else if (v < 0 || v > 1) add('plate_confidence ' + v + ' is outside 0..1');
+    }
+
+    if (!isBlank(r.speed)) {
+      const v = Number(r.speed);
+      if (!Number.isFinite(v)) add('speed "' + r.speed + '" is not a number');
+      else if (v < 0) add('speed must be ≥ 0');
+    }
+  });
+
+  return { errors: errors, uniqueCameras: cams, uniquePlates: plates, minTs: minTs, maxTs: maxTs };
+}
+
+function looksLikeCameras(o) {
+  if (!o || typeof o !== 'object') return false;
+  return ('latitude' in o || 'longitude' in o) && !('plate' in o);
+}
+
+function looksLikeEvents(o) {
+  if (!o || typeof o !== 'object') return false;
+  return ('plate' in o) || ('timestamp' in o && 'camera_id' in o && !('latitude' in o));
+}
+
+let lastValidation = null;
+let lastFileMeta = null;
+
+async function readSelectedDatasetFile() {
+  const input = document.getElementById('d-file');
+  const file = input.files && input.files[0];
+  if (!file) {
+    showNotice('d-notice', 'err', '<strong>No file selected.</strong> Choose a .json or .csv file first.');
+    return null;
+  }
+  let text;
+  try {
+    text = await file.text();
+  } catch (err) {
+    showNotice('d-notice', 'err',
+      '<strong>Could not read the file.</strong> ' + esc(err && err.message ? err.message : String(err)));
+    return null;
+  }
+  if (!text || !text.trim()) {
+    showNotice('d-notice', 'err', '<strong>The file is empty.</strong>');
+    return null;
+  }
+  return { file: file, text: text };
+}
+
+function parseDataset(text, filename, kindHint) {
+  const trimmed = text.trim();
+  const isJson = trimmed.charAt(0) === '{' || trimmed.charAt(0) === '[';
+
+  if (isJson) {
+    let data;
+    try {
+      data = JSON.parse(trimmed);
+    } catch (err) {
+      return { fatal: 'JSON is not parseable: ' + (err && err.message ? err.message : String(err)) };
+    }
+    if (Array.isArray(data)) {
+      const first = data.find(function (x) { return x && typeof x === 'object'; });
+      if (kindHint === 'cameras' || (kindHint === 'auto' && looksLikeCameras(first))) {
+        return { format: 'json array', cameras: data, events: [] };
+      }
+      if (kindHint === 'events' || (kindHint === 'auto' && looksLikeEvents(first))) {
+        return { format: 'json array', cameras: [], events: data };
+      }
+      return { fatal: 'A bare JSON array was given but its shape matches neither cameras ' +
+                      '(needs latitude/longitude) nor events (needs plate + timestamp). ' +
+                      'Wrap it as {"cameras": [...]} or {"events": [...]}, or pick the artefact type.' };
+    }
+    if (data && typeof data === 'object') {
+      const cameras = data.cameras || data.camera || [];
+      const events = data.events || data.event || data.detections || [];
+      if (!Array.isArray(cameras) && !Array.isArray(events)) {
+        return { fatal: 'JSON object has neither a "cameras" array nor an "events" array.' };
+      }
+      return {
+        format: 'json object',
+        cameras: Array.isArray(cameras) ? cameras : [],
+        events: Array.isArray(events) ? events : []
+      };
+    }
+    return { fatal: 'JSON root must be an object or an array.' };
+  }
+
+  // CSV
+  const parsed = csvToObjects(text);
+  if (parsed.objects.length === 0) {
+    return { fatal: 'CSV has a header row but no data rows.' };
+  }
+  let kind = kindHint;
+  if (kind === 'auto') {
+    const h = parsed.headers;
+    if (h.indexOf('latitude') >= 0 || h.indexOf('longitude') >= 0) kind = 'cameras';
+    else if (h.indexOf('plate') >= 0) kind = 'events';
+    else {
+      return { fatal: 'Could not tell what this CSV is from its headers (' + parsed.headers.join(', ') +
+                      '). Expected latitude/longitude for cameras or plate/timestamp for events. ' +
+                      'Set the artefact type manually.' };
+    }
+  }
+  const unknown = parsed.headers.filter(function (h) {
+    return h && (kind === 'cameras' ? CAMERA_COLS : EVENT_COLS).indexOf(h) < 0;
+  });
+  const out = { format: 'csv (' + kind + ')', cameras: [], events: [], unknownHeaders: unknown };
+  out[kind] = parsed.objects;
+  return out;
+}
+
+function validateDataset() {
+  return doValidate().then(function () {});
+}
+
+async function doValidate() {
+  const sel = await readSelectedDatasetFile();
+  if (!sel) { lastValidation = null; return null; }
+
+  const kindHint = document.getElementById('d-kind').value || 'auto';
+  const parsed = parseDataset(sel.text, sel.file.name, kindHint);
+
+  const summaryEl = document.getElementById('d-summary');
+  const errorsEl = document.getElementById('d-errors');
+  summaryEl.innerHTML = '';
+  errorsEl.innerHTML = '';
+
+  if (parsed.fatal) {
+    lastValidation = null;
+    setText('d-state', 'invalid');
+    showNotice('d-notice', 'err', '<strong>Cannot parse this file.</strong> ' + esc(parsed.fatal));
+    return null;
+  }
+
+  const camRes = validateCameras(parsed.cameras || []);
+  const evtRes = validateEvents(parsed.events || []);
+  const errors = camRes.errors.concat(evtRes.errors);
+
+  const allCams = new Set();
+  camRes.uniqueCameras.forEach(function (c) { allCams.add(c); });
+  evtRes.uniqueCameras.forEach(function (c) { allCams.add(c); });
+
+  const rowsParsed = (parsed.cameras || []).length + (parsed.events || []).length;
+
+  // Cross-check: events referencing cameras that were not declared.
+  let orphanNote = '';
+  if ((parsed.cameras || []).length > 0 && (parsed.events || []).length > 0) {
+    const declared = camRes.uniqueCameras;
+    const orphans = [];
+    evtRes.uniqueCameras.forEach(function (c) { if (!declared.has(c)) orphans.push(c); });
+    if (orphans.length > 0) {
+      orphanNote = '<div class="notice warn" style="margin-top:8px;"><strong>' + orphans.length +
+        ' camera_id(s) appear in events but are not declared in cameras:</strong> ' +
+        esc(orphans.slice(0, 12).join(', ')) + (orphans.length > 12 ? ' …' : '') +
+        '. Ingestion may create them implicitly or reject those rows depending on server policy.</div>';
+    }
+  }
+
+  const range = (evtRes.minTs && evtRes.maxTs)
+    ? (evtRes.minTs.toISOString().slice(0, 19).replace('T', ' ') + '  →  ' +
+       evtRes.maxTs.toISOString().slice(0, 19).replace('T', ' ') + ' UTC')
+    : DASH;
+
+  summaryEl.innerHTML =
+    '<div class="field-label">What would be ingested</div>' +
+    '<div class="kpi-grid" style="margin-bottom:8px;">' +
+      '<div class="kpi"><div class="kpi-label">Rows parsed</div><div class="kpi-value cyan">' + fmtInt(rowsParsed) + '</div></div>' +
+      '<div class="kpi"><div class="kpi-label">Cameras</div><div class="kpi-value">' + fmtInt((parsed.cameras || []).length) + '</div></div>' +
+      '<div class="kpi"><div class="kpi-label">Events</div><div class="kpi-value">' + fmtInt((parsed.events || []).length) + '</div></div>' +
+      '<div class="kpi"><div class="kpi-label">Unique camera_id</div><div class="kpi-value purple">' + fmtInt(allCams.size) + '</div></div>' +
+      '<div class="kpi"><div class="kpi-label">Unique plates</div><div class="kpi-value amber">' + fmtInt(evtRes.uniquePlates.size) + '</div></div>' +
+      '<div class="kpi"><div class="kpi-label">Errors</div><div class="kpi-value ' + (errors.length ? 'red' : 'green') + '">' + fmtInt(errors.length) + '</div></div>' +
+    '</div>' +
+    '<dl class="kv">' +
+      '<dt>file</dt><dd>' + esc(sel.file.name) + '</dd>' +
+      '<dt>detected format</dt><dd>' + esc(parsed.format || DASH) + '</dd>' +
+      '<dt>size</dt><dd>' + fmtBytes(sel.file.size) + '</dd>' +
+      '<dt>event date range</dt><dd>' + esc(range) + '</dd>' +
+    '</dl>' + orphanNote;
+
+  if (parsed.unknownHeaders && parsed.unknownHeaders.length > 0) {
+    errorsEl.innerHTML += '<div class="notice warn"><strong>Unrecognised CSV columns (ignored):</strong> ' +
+      esc(parsed.unknownHeaders.join(', ')) + '</div>';
+  }
+
+  if (errors.length > 0) {
+    setText('d-state', errors.length + ' error(s)');
+    showNotice('d-notice', 'err',
+      '<strong>' + errors.length + ' row error(s) found.</strong> Fix these before ingesting — ' +
+      'the INGEST button will refuse while errors remain.');
+    const shown = errors.slice(0, 200);
+    errorsEl.innerHTML +=
+      '<div class="field-label" style="margin-top:8px;">Per-row errors</div>' +
+      '<div class="err-list">' +
+      shown.map(function (e) {
+        return '<div><span class="rowno">' + esc(e.artefact) + ':' + e.row + '</span> <span class="red">' +
+          esc(e.msg) + '</span></div>';
+      }).join('') +
+      (errors.length > shown.length
+        ? '<div class="muted">… and ' + (errors.length - shown.length) + ' more.</div>'
+        : '') +
+      '</div>';
+  } else if (rowsParsed === 0) {
+    setText('d-state', 'empty');
+    showNotice('d-notice', 'warn', '<strong>No rows found.</strong> The file parsed cleanly but contained no records.');
+  } else {
+    setText('d-state', 'valid');
+    showNotice('d-notice', 'ok',
+      '<strong>Format is valid.</strong> ' + fmtInt(rowsParsed) +
+      ' row(s) conform to the contract and are ready to ingest.');
+  }
+
+  lastValidation = { parsed: parsed, errors: errors, rowsParsed: rowsParsed };
+  lastFileMeta = sel;
+  return lastValidation;
+}
+
+async function submitDataset() {
+  const v = await doValidate();
+  if (!v) return;
+  if (v.errors.length > 0) return;   // doValidate already explained why
+  if (v.rowsParsed === 0) return;
+
+  const btn = document.getElementById('d-submit');
+  btn.disabled = true;
+  try {
+    const fd = new FormData();
+    fd.append('file', lastFileMeta.file, lastFileMeta.file.name);
+    fd.append('sandbox', document.getElementById('d-sandbox').checked ? 'true' : 'false');
+
+    const res = await apiFetch('/jobs/dataset', { method: 'POST', body: fd });
+    if (res.ok) {
+      const inserted = pickNum(res.body, ['events_inserted', 'inserted', 'rows_inserted']);
+      const camsIns = pickNum(res.body, ['cameras_inserted', 'cameras']);
+      showNotice('d-notice', 'ok',
+        '<strong>Dataset accepted.</strong> ' +
+        (camsIns === undefined ? '' : fmtInt(camsIns) + ' camera(s), ') +
+        (inserted === undefined ? '' : fmtInt(inserted) + ' event(s) inserted. ') +
+        'Response: <code>' + esc(JSON.stringify(res.body).slice(0, 240)) + '</code>');
+      return;
+    }
+    // 404 = no such route. 405 = the path matched an existing route registered for a
+    // different method (GET /jobs/{job_id} swallows /jobs/dataset), which is what this
+    // API actually returns today. Both mean the same thing to the operator.
+    if (res.status === 404 || res.status === 405) {
+      showNotice('d-notice', 'warn',
+        '<strong>Dataset ingestion is not wired up yet.</strong> <code>POST /jobs/dataset</code> returned ' +
+        res.status + ' (<em>' + esc(res.error || '') + '</em>), so nothing was sent to any database. ' +
+        'The validation above is real, though: your file matches the contract and the summary shows exactly ' +
+        'what <em>would</em> be ingested once that endpoint exists.');
+      return;
+    }
+    showNotice('d-notice', 'err', failNotice('POST /jobs/dataset', res));
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   Feature probe + boot
+   ────────────────────────────────────────────────────────────────── */
+
+async function probeFeatures() {
+  const el = document.getElementById('jobs-api-status');
+  const res = await apiFetch('/');
+  if (!res.ok) {
+    el.innerHTML = '<span class="status-pill offline"></span><span class="red">backend down</span>';
+    showNotice('jobs-unavailable', 'err',
+      '<strong>Backend unreachable at <code>' + esc(API_BASE) + '</code>.</strong> ' +
+      esc(res.error || '') + ' Start the API and reload this page.');
+    return;
+  }
+  const features = pick(res.body, ['features']) || {};
+  const jobs = features.jobs;
+  if (jobs === 'ok') {
+    el.innerHTML = '<span class="status-pill online"></span><span class="green">enabled</span>';
+    hideNotice('jobs-unavailable');
+  } else if (jobs === undefined) {
+    el.innerHTML = '<span class="status-pill offline"></span><span class="amber">unknown</span>';
+    showNotice('jobs-unavailable', 'warn',
+      '<strong>The API did not report a media-jobs feature flag.</strong> Submissions will still be attempted; ' +
+      'if <code>/jobs/video</code> 404s you will get a clear message here.');
+  } else {
+    el.innerHTML = '<span class="status-pill offline"></span><span class="amber">disabled</span>';
+    showNotice('jobs-unavailable', 'warn',
+      '<strong>Media-jobs router is DISABLED on this server.</strong> Reported reason: <code>' +
+      esc(String(jobs)) + '</code>.<br/>Video / photo runs will 404 until <code>backend/api/jobs.py</code> ' +
+      'imports cleanly. Dataset validation on the CITY DATASET tab works entirely in-browser and is unaffected.');
+  }
+}
+
+function boot() {
+  initSamples();
+  initExample();
+  updateSandboxFlag();
+
+  ['v-sandbox', 'p-sandbox'].forEach(function (id) {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', updateSandboxFlag);
+  });
+  ['st-video', 'st-photo'].forEach(function (id) {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('click', function () { setTimeout(updateSandboxFlag, 0); });
+  });
+
+  // Selecting a bundled sample and an upload are mutually exclusive.
+  const sampleSel = document.getElementById('v-sample');
+  const fileIn = document.getElementById('v-file');
+  if (sampleSel && fileIn) {
+    sampleSel.addEventListener('change', function () { if (sampleSel.value) fileIn.value = ''; });
+    fileIn.addEventListener('change', function () { if (fileIn.files && fileIn.files.length) sampleSel.value = ''; });
+  }
+
+  const dFile = document.getElementById('d-file');
+  if (dFile) dFile.addEventListener('change', function () { validateDataset(); });
+
+  const provToggle = document.getElementById('show-provisional');
+  if (provToggle) provToggle.addEventListener('change', renderPlateTable);
+
+  probeFeatures();
+  fetchComputeSnapshot();
+  computeTimer = setInterval(fetchComputeSnapshot, 3000);
+}
+
+window.addEventListener('error', function (e) {
+  // Last-resort visibility: a thrown error should never leave a blank panel.
+  const el = document.getElementById('run-notice');
+  if (el && e && e.message) {
+    el.className = 'notice err';
+    el.innerHTML = '<strong>Client-side error:</strong> ' + esc(e.message);
+  }
+});
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+else boot();
+</script>
+</body>
+</html>

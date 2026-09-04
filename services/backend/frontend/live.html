@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LIVE INGESTION MONITOR // sys::anpr-radar</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700;800&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+
+  <!--
+    LIVE INGESTION MONITOR — its own window, on purpose.
+
+    This is not a dashboard tab. During a demonstration it belongs on a second
+    screen next to the dashboard: the operator watches sightings arrive here
+    while the dashboard's map and analytics react to the same rows. Folding it
+    into a tab would mean only one of those two things is ever visible.
+
+    Everything on this page is downstream of one thing — the simulation clock
+    promoting staged future sightings into vehicle_events one at a time. The
+    feed is those rows; the heatmap is those rows binned by camera over a
+    rolling window; the trajectory is one plate's rows in order; the prediction
+    is a transition model reading them. Nothing here is animated for effect.
+  -->
+  <style>
+    :root {
+      --bg: #090a0f;
+      --panel: #0d0f17;
+      --panel-border: #1e2433;
+      --text: #c0caf5;
+      --text-muted: #565f89;
+      --accent-green: #9ece6a;
+      --accent-cyan: #7dcfff;
+      --accent-amber: #e0af68;
+      --accent-red: #f7768e;
+      --accent-purple: #bb9af7;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      line-height: 1.4;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    header {
+      background: #06070a;
+      border-bottom: 1px solid var(--panel-border);
+      padding: 6px 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .brand {
+      font-weight: 800;
+      color: var(--accent-cyan);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      white-space: nowrap;
+    }
+
+    .badge {
+      font-size: 10px;
+      padding: 1px 6px;
+      background: #161b26;
+      border: 1px solid var(--panel-border);
+      color: var(--accent-amber);
+      font-weight: 500;
+    }
+    .badge.live { color: var(--accent-green); border-color: #2a3b28; }
+    .badge.dead { color: var(--accent-red); border-color: #3b2830; }
+
+    .controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+    .cli-btn {
+      background: #161b26;
+      border: 1px solid var(--panel-border);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 11px;
+      padding: 4px 10px;
+      cursor: pointer;
+      border-radius: 2px;
+    }
+    .cli-btn:hover { background: #21293a; color: var(--accent-cyan); }
+    .cli-btn.primary { border-color: #2a4a5a; color: var(--accent-green); }
+    .cli-btn.danger:hover { color: var(--accent-red); }
+    .cli-btn[disabled] { opacity: 0.4; cursor: not-allowed; }
+
+    .cli-input {
+      background: #080a0f;
+      border: 1px solid var(--panel-border);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 2px;
+      outline: none;
+      min-width: 0;
+    }
+    .cli-input:focus { border-color: var(--accent-cyan); }
+
+    main {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 380px 1fr 340px;
+      gap: 8px;
+      padding: 8px;
+    }
+
+    .col { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+
+    .box {
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 3px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      min-height: 0;
+    }
+
+    .box-header {
+      background: #080a0f;
+      border-bottom: 1px solid var(--panel-border);
+      padding: 5px 9px;
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      gap: 8px;
+      flex: 0 0 auto;
+    }
+
+    .box-body { padding: 8px; flex: 1; min-height: 0; overflow-y: auto; }
+    .box-body.flush { padding: 0; }
+
+    /* ── the feed ─────────────────────────────────────────────── */
+    #feed { font-size: 11px; }
+
+    .hit {
+      display: grid;
+      grid-template-columns: 62px 1fr auto;
+      gap: 6px;
+      padding: 3px 6px;
+      border-bottom: 1px solid #131722;
+      align-items: baseline;
+      /* New rows are inserted at the top; the flash is what makes "one by one"
+         legible when 30 arrive a second. */
+      animation: flash 0.5s ease-out;
+    }
+    @keyframes flash {
+      from { background: #1b2436; }
+      to   { background: transparent; }
+    }
+    .hit.watch { background: #2a1620; border-bottom-color: #46202e; }
+    .hit.watch:hover { background: #341a27; }
+    .hit .t { color: var(--text-muted); font-size: 10px; }
+    .hit .p { color: var(--accent-cyan); font-weight: 700; }
+    .hit.watch .p { color: var(--accent-red); }
+    .hit .c { color: var(--text-muted); font-size: 10px; }
+    .hit .s { color: var(--accent-amber); font-size: 10px; white-space: nowrap; }
+    .hit .unid { color: var(--text-muted); font-style: italic; font-weight: 400; }
+    .hit:hover { background: #121622; cursor: pointer; }
+
+    /* ── kpi strip ────────────────────────────────────────────── */
+    .kpis {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(78px, 1fr));
+      gap: 6px;
+    }
+    .kpi {
+      background: #080a0f;
+      border: 1px solid var(--panel-border);
+      padding: 5px 7px;
+      border-radius: 2px;
+    }
+    .kpi-label { font-size: 9px; color: var(--text-muted); text-transform: uppercase; }
+    .kpi-value { font-size: 15px; font-weight: 700; margin-top: 1px; }
+    .green { color: var(--accent-green); }
+    .cyan { color: var(--accent-cyan); }
+    .amber { color: var(--accent-amber); }
+    .red { color: var(--accent-red); }
+    .purple { color: var(--accent-purple); }
+    .muted { color: var(--text-muted); }
+
+    /* ── map ──────────────────────────────────────────────────── */
+    #live-map { width: 100%; height: 100%; }
+    .leaflet-tile { filter: invert(100%) hue-rotate(180deg) brightness(85%) contrast(110%); }
+    .leaflet-container { background: #06070a !important; }
+
+    .legend {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 9px;
+      color: var(--text-muted);
+    }
+    .ramp {
+      width: 84px; height: 7px;
+      background: linear-gradient(90deg, #3b4a6b, #7dcfff, #9ece6a, #e0af68, #f7768e);
+      border: 1px solid var(--panel-border);
+    }
+
+    /* ── timeline ─────────────────────────────────────────────── */
+    #timeline { width: 100%; height: 54px; display: block; }
+    .tl-caption {
+      display: flex; justify-content: space-between;
+      font-size: 9px; color: var(--text-muted); padding: 0 2px;
+    }
+
+    /* ── prediction ───────────────────────────────────────────── */
+    .pred {
+      background: #080a0f;
+      border: 1px solid var(--panel-border);
+      border-left-width: 3px;
+      padding: 6px 8px;
+      margin-bottom: 6px;
+      font-size: 11px;
+    }
+    .pred.HIGH { border-left-color: var(--accent-green); }
+    .pred.MEDIUM { border-left-color: var(--accent-amber); }
+    .pred.LOW { border-left-color: #4a5578; }
+    .pred.SPECULATIVE { border-left-color: #2b3350; }
+    .pred-head { display: flex; justify-content: space-between; gap: 8px; }
+    .pred-meta { color: var(--text-muted); font-size: 10px; margin-top: 3px; }
+
+    .bar {
+      height: 4px;
+      background: #141a28;
+      margin-top: 4px;
+      position: relative;
+      overflow: hidden;
+    }
+    .bar > i { display: block; height: 100%; background: var(--accent-cyan); }
+    .bar > u {
+      /* The Wilson lower bound, drawn as a tick inside the probability bar:
+         the honest floor under the headline number. */
+      position: absolute; top: -2px; width: 1px; height: 8px;
+      background: var(--text); opacity: 0.75;
+    }
+
+    .notice {
+      border: 1px solid var(--panel-border);
+      border-left: 3px solid var(--accent-cyan);
+      background: #0a0f18;
+      padding: 6px 8px;
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+    .notice.warn { border-left-color: var(--accent-amber); }
+    .notice.err { border-left-color: var(--accent-red); }
+    .notice strong { color: var(--text); }
+    .hidden { display: none !important; }
+
+    dl.kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 10px; }
+    dl.kv dt { color: var(--text-muted); }
+    dl.kv dd { text-align: right; }
+
+    @media (max-width: 1200px) {
+      main { grid-template-columns: 1fr; grid-auto-rows: minmax(220px, auto); overflow-y: auto; }
+      body { overflow: auto; height: auto; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <span>sys::live-ingestion</span>
+    <span class="badge" id="ws-state">● CONNECTING</span>
+    <span class="badge" id="clock-state">CLOCK —</span>
+  </div>
+
+  <div class="controls">
+    <span class="muted" style="font-size:10px;">SIM CLOCK</span>
+    <span id="sim-time" class="cyan" style="font-size:11px; min-width: 150px;">—</span>
+    <button class="cli-btn primary" id="btn-start" onclick="startClock()">▶ START</button>
+    <button class="cli-btn" id="btn-pause" onclick="pauseClock()">❙❙ PAUSE</button>
+    <button class="cli-btn danger" id="btn-stop" onclick="stopClock()">■ STOP</button>
+    <select class="cli-input" id="speed" onchange="changeSpeed()" title="Simulated seconds per real second">
+      <option value="1">1x realtime</option>
+      <option value="10">10x</option>
+      <option value="60" selected>60x — 1 sim-hour / min</option>
+      <option value="300">300x</option>
+      <option value="1800">1800x — 1 sim-day / 48s</option>
+    </select>
+    <button class="cli-btn" onclick="resetClock()" title="Delete everything this run promoted and return to now">⟲ RESET</button>
+    <button class="cli-btn" onclick="window.open('/app', 'anpr-dashboard')">DASHBOARD ↗</button>
+  </div>
+</header>
+
+<main>
+  <!-- ── LEFT: the stream ─────────────────────────────────────── -->
+  <div class="col">
+    <section class="box" style="flex: 0 0 auto;">
+      <div class="box-header"><span>Ingestion Rate</span><span class="hint muted" id="backlog-note">—</span></div>
+      <div class="box-body">
+        <div class="kpis">
+          <div class="kpi"><div class="kpi-label">Promoted</div><div class="kpi-value cyan" id="k-promoted">—</div></div>
+          <div class="kpi"><div class="kpi-label">Events/sec</div><div class="kpi-value green" id="k-rate">—</div></div>
+          <div class="kpi"><div class="kpi-label">Watchlist</div><div class="kpi-value red" id="k-watch">0</div></div>
+          <div class="kpi"><div class="kpi-label">Tracked</div><div class="kpi-value purple" id="k-tracked">—</div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="box" style="flex: 1 1 auto;">
+      <div class="box-header">
+        <span>Live Hits</span>
+        <span class="controls">
+          <label style="font-size:9px; color:var(--text-muted); display:flex; align-items:center; gap:3px;">
+            <input type="checkbox" id="only-watch" onchange="renderFeed()" style="accent-color: var(--accent-red);" />
+            watchlist only
+          </label>
+          <button class="cli-btn" style="padding:1px 6px; font-size:9px;" onclick="togglePauseFeed(this)">❙❙ HOLD</button>
+        </span>
+      </div>
+      <div class="box-body flush" id="feed">
+        <div class="notice" style="margin:8px;">
+          Waiting for the clock. Each row below is one sighting promoted from the staged
+          future into <code>vehicle_events</code> — the same rows the dashboard's analytics read.
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ── CENTRE: live heatmap + timeline ──────────────────────── -->
+  <div class="col">
+    <section class="box" style="flex: 1 1 auto;">
+      <div class="box-header">
+        <span>Live Heatmap — rolling window of ingested sightings</span>
+        <span class="controls">
+          <select class="cli-input" id="hm-window" onchange="refreshHeatmap()" style="font-size:10px; padding:1px 4px;">
+            <option value="5">last 5 sim-min</option>
+            <option value="15" selected>last 15 sim-min</option>
+            <option value="60">last 60 sim-min</option>
+          </select>
+          <span class="legend">low <span class="ramp"></span> high</span>
+        </span>
+      </div>
+      <div class="box-body flush"><div id="live-map"></div></div>
+    </section>
+
+    <section class="box" style="flex: 0 0 auto;">
+      <div class="box-header">
+        <span>Timeline — 30 days behind, 30 days staged ahead</span>
+        <span class="muted" id="tl-totals">—</span>
+      </div>
+      <div class="box-body">
+        <canvas id="timeline" height="54"></canvas>
+        <div class="tl-caption">
+          <span id="tl-left">—</span>
+          <span class="cyan">▲ now — ingesting here</span>
+          <span id="tl-right">—</span>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ── RIGHT: follow a vehicle ──────────────────────────────── -->
+  <div class="col">
+    <section class="box" style="flex: 0 0 auto;">
+      <div class="box-header"><span>Follow a Vehicle</span></div>
+      <div class="box-body">
+        <div style="display:flex; gap:6px;">
+          <input class="cli-input" id="follow-plate" placeholder="plate — or click a hit" style="flex:1;" />
+          <button class="cli-btn" onclick="follow()">TRACK</button>
+        </div>
+        <div id="follow-summary" style="margin-top:8px;"></div>
+      </div>
+    </section>
+
+    <section class="box" style="flex: 1 1 auto;">
+      <div class="box-header">
+        <span>Most Probable Next Locations</span>
+        <span class="muted" id="pred-conf">—</span>
+      </div>
+      <div class="box-body">
+        <div class="notice" id="pred-note">
+          Track a plate the clock has already seen. Probability is the transition model's;
+          <strong>confidence</strong> is whether that estimate is worth acting on — it folds in
+          how many departures from that junction were actually observed and how lopsided the
+          split is.
+        </div>
+        <div id="pred-list"></div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script>
+/* ──────────────────────────────────────────────────────────────
+   Wiring. Same origin as the API when served from /app/live;
+   falls back to :8000 when opened as a file during development.
+   ────────────────────────────────────────────────────────────── */
+const API_BASE = (location.protocol === 'file:') ? 'http://localhost:8000' : '';
+const WS_BASE = API_BASE
+  ? API_BASE.replace(/^http/, 'ws')
+  : (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
+
+const MAX_FEED = 400;          // DOM rows kept; beyond this the browser, not the API, is the limit
+let feedRows = [];             // newest first
+let feedHeld = false;
+let ws = null;
+let wsRetry = 0;
+
+let map = null, heatLayer = null, markerLayer = null, trailLayer = null;
+let mapReady = false;
+let followedPlate = null;
+let lastStatus = null;
+let rateWindow = [];           // [wallMs, promotedTotal] for a real events/sec
+
+/* ── helpers ─────────────────────────────────────────────────── */
+function $(id) { return document.getElementById(id); }
+function esc(v) {
+  return String(v === null || v === undefined ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+function num(v, d) {
+  if (v === null || v === undefined || isNaN(v)) return '—';
+  return Number(v).toLocaleString(undefined, {
+    minimumFractionDigits: d || 0, maximumFractionDigits: d || 0
+  });
+}
+function clockOf(iso) {
+  if (!iso) return '—';
+  // Sim timestamps are naive UTC. Appending Z and formatting in UTC keeps the
+  // displayed time equal to the stored one — rendering in the viewer's local
+  // zone would silently shift every row by the browser's offset.
+  const d = new Date(iso.endsWith('Z') ? iso : iso + 'Z');
+  return isNaN(d) ? '—' : d.toISOString().slice(11, 19);
+}
+function stampOf(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso.endsWith('Z') ? iso : iso + 'Z');
+  return isNaN(d) ? '—' : d.toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+}
+
+async function api(path, options) {
+  try {
+    const res = await fetch(API_BASE + path, options);
+    const body = await res.json().catch(function () { return null; });
+    return { ok: res.ok, status: res.status, body: body };
+  } catch (e) {
+    return { ok: false, status: 0, body: null, error: String(e) };
+  }
+}
+
+/* ── clock control ───────────────────────────────────────────── */
+async function startClock() {
+  const speed = $('speed').value;
+  const res = await api('/simulation/start?speed=' + encodeURIComponent(speed), { method: 'POST' });
+  if (res.ok) applyStatus(res.body);
+  else noticeError('Could not start the clock', res);
+}
+async function pauseClock() {
+  const running = lastStatus && lastStatus.state === 'RUNNING';
+  const res = await api(running ? '/simulation/pause' : '/simulation/resume', { method: 'POST' });
+  if (res.ok) applyStatus(res.body);
+}
+async function stopClock() {
+  const res = await api('/simulation/stop', { method: 'POST' });
+  if (res.ok) applyStatus(res.body);
+}
+async function changeSpeed() {
+  const res = await api('/simulation/speed?speed=' + encodeURIComponent($('speed').value), { method: 'POST' });
+  if (res.ok) applyStatus(res.body);
+}
+async function resetClock() {
+  if (!confirm(
+    'Reset deletes every event this simulation promoted and returns the clock to now.\n\n' +
+    'The month of history is untouched. Continue?'
+  )) return;
+  const res = await api('/simulation/reset', { method: 'POST' });
+  if (res.ok) {
+    feedRows = [];
+    renderFeed();
+    applyStatus(res.body);
+    refreshHeatmap();
+    refreshTimeline();
+  }
+}
+
+function noticeError(what, res) {
+  const detail = res && res.body && res.body.detail ? res.body.detail : (res && res.error) || '';
+  $('feed').insertAdjacentHTML('afterbegin',
+    '<div class="notice err" style="margin:8px;"><strong>' + esc(what) + '.</strong> ' +
+    esc(typeof detail === 'string' ? detail : JSON.stringify(detail)) + '</div>');
+}
+
+/* ── status ──────────────────────────────────────────────────── */
+function applyStatus(s) {
+  if (!s) return;
+  lastStatus = s;
+
+  $('sim-time').textContent = stampOf(s.sim_time);
+  const badge = $('clock-state');
+  badge.textContent = 'CLOCK ' + s.state + ' @ ' + s.speed + 'x';
+  badge.className = 'badge' + (s.state === 'RUNNING' ? ' live' : s.state === 'STOPPED' ? ' dead' : '');
+
+  const c = s.counters || {};
+  $('k-promoted').textContent = num(c.events_promoted);
+  $('k-watch').textContent = num(c.watchlist_hits);
+  $('k-tracked').textContent = num(s.tracked_vehicles);
+
+  // Events/sec measured from the counter over a real-time window, not reported
+  // by the server: this is the rate the viewer is actually seeing.
+  const now = Date.now();
+  rateWindow.push([now, c.events_promoted || 0]);
+  while (rateWindow.length > 1 && now - rateWindow[0][0] > 10000) rateWindow.shift();
+  if (rateWindow.length > 1) {
+    const dt = (now - rateWindow[0][0]) / 1000;
+    const dn = (c.events_promoted || 0) - rateWindow[0][1];
+    $('k-rate').textContent = dt > 0 ? num(dn / dt, 1) : '—';
+  }
+
+  const backlog = c.backlog || 0;
+  const note = $('backlog-note');
+  if (s.state === 'EXHAUSTED') {
+    note.innerHTML = '<span class="amber">staged month exhausted</span>';
+  } else if (backlog > 20000) {
+    // A growing backlog means the clock is set faster than the database can
+    // promote. Saying so beats letting the feed quietly fall behind sim-time.
+    note.innerHTML = '<span class="red">backlog ' + num(backlog) + ' — lower the speed</span>';
+  } else if (backlog > 0) {
+    note.innerHTML = '<span class="muted">backlog ' + num(backlog) + '</span>';
+  } else {
+    note.innerHTML = '<span class="muted">keeping up · tick ' + num(c.last_tick_ms, 0) + ' ms</span>';
+  }
+
+  const running = s.state === 'RUNNING';
+  $('btn-pause').textContent = running ? '❙❙ PAUSE' : '▶ RESUME';
+  if (String(s.speed) !== $('speed').value) {
+    const opt = Array.from($('speed').options).find(function (o) { return o.value === String(s.speed); });
+    if (opt) $('speed').value = String(s.speed);
+  }
+}
+
+/* ── the feed ────────────────────────────────────────────────── */
+function togglePauseFeed(btn) {
+  feedHeld = !feedHeld;
+  btn.textContent = feedHeld ? '▶ RESUME' : '❙❙ HOLD';
+  btn.style.color = feedHeld ? 'var(--accent-amber)' : '';
+  if (!feedHeld) renderFeed();
+}
+
+function ingestHits(hits) {
+  if (!hits || !hits.length) return;
+  // Newest first, capped. Rendering 4,000 rows a tick would make the browser
+  // the bottleneck, and nobody can read them anyway.
+  for (let i = hits.length - 1; i >= 0; i--) feedRows.unshift(hits[i]);
+  if (feedRows.length > MAX_FEED) feedRows.length = MAX_FEED;
+  if (!feedHeld) renderFeed();
+}
+
+function renderFeed() {
+  const onlyWatch = $('only-watch').checked;
+  const rows = onlyWatch ? feedRows.filter(function (h) { return h.watchlisted; }) : feedRows;
+  if (!rows.length) {
+    $('feed').innerHTML =
+      '<div class="notice" style="margin:8px;">' +
+      (onlyWatch ? 'No watchlisted vehicle has been seen yet in this run.'
+                 : 'Waiting for the clock. Press START.') +
+      '</div>';
+    return;
+  }
+  $('feed').innerHTML = rows.slice(0, MAX_FEED).map(function (h) {
+    const ident = h.plate
+      ? '<span class="p">' + esc(h.plate) + '</span>'
+      : '<span class="p unid">UNIDENTIFIED</span>';
+    const attrs = [h.vehicle_color, h.vehicle_type].filter(Boolean).join(' ');
+    return '<div class="hit' + (h.watchlisted ? ' watch' : '') + '" ' +
+      'onclick="followFrom(' + JSON.stringify(h.plate || '').replace(/"/g, '&quot;') + ')">' +
+      '<span class="t">' + clockOf(h.timestamp) + '</span>' +
+      '<span>' + ident +
+        '<span class="c"> @ ' + esc(h.camera_name || h.camera_id) + (attrs ? ' · ' + esc(attrs) : '') + '</span>' +
+      '</span>' +
+      '<span class="s">' + (h.speed !== null && h.speed !== undefined ? num(h.speed, 0) + ' km/h' : '—') + '</span>' +
+      '</div>';
+  }).join('');
+}
+
+function followFrom(plate) {
+  if (!plate) return;
+  $('follow-plate').value = plate;
+  follow();
+}
+
+/* ── map ─────────────────────────────────────────────────────── */
+function initMap() {
+  if (mapReady) return;
+  map = L.map('live-map', { zoomControl: true }).setView([28.61, 77.21], 11);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap', maxZoom: 19
+  }).addTo(map);
+  markerLayer = L.layerGroup().addTo(map);
+  trailLayer = L.layerGroup().addTo(map);
+  mapReady = true;
+}
+
+let fittedOnce = false;
+async function refreshHeatmap() {
+  if (!mapReady) return;
+  const minutes = $('hm-window').value;
+  const res = await api('/simulation/heatmap?minutes=' + encodeURIComponent(minutes));
+  if (!res.ok || !res.body) return;
+  const pts = res.body.points || [];
+
+  const heat = pts.map(function (p) { return [p.latitude, p.longitude, Math.max(0.08, p.intensity)]; });
+  if (heatLayer) map.removeLayer(heatLayer);
+  heatLayer = L.heatLayer(heat, {
+    radius: 22, blur: 18, maxZoom: 15, minOpacity: 0.25,
+    gradient: { 0.0: '#3b4a6b', 0.3: '#7dcfff', 0.55: '#9ece6a', 0.78: '#e0af68', 1.0: '#f7768e' }
+  }).addTo(map);
+
+  // Busiest cameras get a labelled dot; a heat blob alone cannot be clicked or
+  // read, and "which junction is that?" is the first question anyone asks.
+  markerLayer.clearLayers();
+  pts.slice(0, 30).forEach(function (p) {
+    const m = L.circleMarker([p.latitude, p.longitude], {
+      radius: 3 + 6 * p.intensity,
+      color: p.congestion === 'SEVERE' ? '#f7768e' : p.congestion === 'HEAVY' ? '#e0af68' : '#7dcfff',
+      weight: 1, fillOpacity: 0.35
+    });
+    m.bindTooltip(
+      '<b>' + esc(p.camera_name || p.camera_id) + '</b><br/>' +
+      num(p.weight) + ' sightings / ' + minutes + ' sim-min<br/>' +
+      num(p.unique_plates) + ' unique plates<br/>' +
+      (p.avg_speed_kmh !== null ? num(p.avg_speed_kmh, 1) + ' km/h avg · ' + esc(p.congestion || '') : 'no speed data'),
+      { sticky: true }
+    );
+    m.addTo(markerLayer);
+  });
+
+  if (!fittedOnce && pts.length) {
+    map.fitBounds(pts.map(function (p) { return [p.latitude, p.longitude]; }), { padding: [30, 30] });
+    fittedOnce = true;
+  }
+}
+
+/* ── follow a vehicle ────────────────────────────────────────── */
+async function follow() {
+  const plate = $('follow-plate').value.trim().toUpperCase();
+  if (!plate) return;
+  followedPlate = plate;
+  await Promise.all([refreshTrail(), refreshPrediction()]);
+}
+
+async function refreshTrail() {
+  if (!followedPlate) return;
+  const res = await api('/simulation/trajectory/' + encodeURIComponent(followedPlate));
+  const box = $('follow-summary');
+  if (!res.ok || !res.body) { box.innerHTML = '<div class="notice err">Lookup failed.</div>'; return; }
+
+  const d = res.body;
+  const pts = (d.points || []).filter(function (p) { return p.latitude && p.longitude; });
+
+  if (!pts.length) {
+    box.innerHTML = '<div class="notice warn"><strong>' + esc(followedPlate) + '</strong> has not been ' +
+      'seen since the clock started. Its history is on the dashboard\'s trajectory tab.</div>';
+    trailLayer.clearLayers();
+    return;
+  }
+
+  box.innerHTML =
+    '<dl class="kv">' +
+      '<dt>live sightings</dt><dd class="cyan">' + num(d.sightings) + '</dd>' +
+      '<dt>elapsed</dt><dd>' + num(d.elapsed_minutes, 1) + ' min</dd>' +
+      '<dt>straight-line</dt><dd>' + num(d.straight_line_km, 2) + ' km</dd>' +
+      '<dt>avg speed</dt><dd class="amber">' + num(d.avg_speed_kmh, 1) + ' km/h</dd>' +
+      '<dt>last seen</dt><dd>' + esc(d.last_camera || '—') + '</dd>' +
+    '</dl>';
+
+  trailLayer.clearLayers();
+  const latlngs = pts.map(function (p) { return [p.latitude, p.longitude]; });
+  L.polyline(latlngs, { color: '#bb9af7', weight: 3, opacity: 0.9 }).addTo(trailLayer);
+  pts.forEach(function (p, i) {
+    L.circleMarker([p.latitude, p.longitude], {
+      radius: i === pts.length - 1 ? 6 : 3,
+      color: i === pts.length - 1 ? '#f7768e' : '#bb9af7',
+      fillColor: '#090a0f', fillOpacity: 1, weight: 2
+    }).bindTooltip(
+      '<b>#' + (i + 1) + ' ' + esc(p.camera_name || p.camera_id) + '</b><br/>' +
+      stampOf(p.timestamp) + '<br/>' +
+      (p.speed !== null && p.speed !== undefined ? num(p.speed, 1) + ' km/h' : 'speed —'),
+      { sticky: true }
+    ).addTo(trailLayer);
+  });
+  if (latlngs.length > 1) map.fitBounds(latlngs, { padding: [50, 50] });
+}
+
+async function refreshPrediction() {
+  if (!followedPlate) return;
+  const res = await api('/simulation/predict/' + encodeURIComponent(followedPlate) + '?top_n=4');
+  const list = $('pred-list');
+  const note = $('pred-note');
+
+  if (res.status === 404) {
+    note.className = 'notice warn';
+    note.innerHTML = '<strong>Not tracked live.</strong> ' +
+      'The clock has not seen ' + esc(followedPlate) + ' yet, so there is no live basis to predict from.';
+    list.innerHTML = '';
+    $('pred-conf').textContent = '—';
+    return;
+  }
+  if (!res.ok || !res.body) { list.innerHTML = ''; return; }
+
+  const d = res.body;
+  const preds = d.predictions || [];
+  $('pred-conf').innerHTML = '<span class="' +
+    (d.confidence_label === 'HIGH' ? 'green' : d.confidence_label === 'MEDIUM' ? 'amber' : 'muted') +
+    '">' + esc(d.confidence_label || '') + ' ' + num((d.confidence || 0) * 100, 1) + '%</span>';
+
+  const basis = d.basis || {};
+  note.className = 'notice';
+  note.innerHTML =
+    '<strong>' + esc(d.plate) + '</strong> last at <span class="cyan">' +
+    esc((d.last_sighting && (d.last_sighting.camera_name || d.last_sighting.camera_id)) || '?') +
+    '</span>, ' + stampOf(d.last_sighting && d.last_sighting.timestamp) + '.<br/>' +
+    'Basis: ' + num(basis.observed_departures_from_camera) + ' observed departures from that junction · ' +
+    'support ' + num(basis.support, 2) + ' · decisiveness ' + num(basis.decisiveness, 2) + '.';
+
+  if (!preds.length) {
+    list.innerHTML = '<div class="notice warn">No vehicle has been observed leaving that ' +
+      'junction in the fitted sample — there is nothing to predict from yet.</div>';
+    return;
+  }
+
+  list.innerHTML = preds.map(function (p, i) {
+    const pct = (p.probability * 100);
+    const lo = (p.probability_lower_bound * 100);
+    return '<div class="pred ' + esc(p.confidence_label) + '">' +
+      '<div class="pred-head">' +
+        '<span><span class="cyan">#' + (i + 1) + '</span> <strong>' +
+          esc(p.camera_name || p.camera_id) + '</strong></span>' +
+        '<span class="' + (p.confidence_label === 'HIGH' ? 'green' : p.confidence_label === 'MEDIUM' ? 'amber' : 'muted') +
+          '">' + num(p.confidence * 100, 1) + '% conf</span>' +
+      '</div>' +
+      '<div class="bar"><i style="width:' + pct.toFixed(1) + '%"></i>' +
+        '<u style="left:' + lo.toFixed(1) + '%" title="95% lower bound"></u></div>' +
+      '<div class="pred-meta">' +
+        'p = ' + pct.toFixed(1) + '% (95% floor ' + lo.toFixed(1) + '%) · ' +
+        num(p.observed_transitions) + ' observed · ' +
+        (p.distance_km !== null ? num(p.distance_km, 2) + ' km · ETA ' + num(p.eta_minutes, 1) + ' min' : 'distance —') +
+        (p.eta_at ? ' · arrives ~' + clockOf(p.eta_at) : '') +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+/* ── timeline ────────────────────────────────────────────────── */
+async function refreshTimeline() {
+  const res = await api('/simulation/timeline?buckets=120');
+  if (!res.ok || !res.body) return;
+  const d = res.body;
+  const canvas = $('timeline');
+  const cssW = canvas.clientWidth || 600;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = cssW * dpr;
+  canvas.height = 54 * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, 54);
+
+  const past = d.past_counts || [];
+  const future = d.future_counts || [];
+  const n = Math.max(past.length, future.length) || 1;
+  const peak = Math.max(1, Math.max.apply(null, past.concat(future)));
+  const bw = cssW / n;
+
+  for (let i = 0; i < n; i++) {
+    // Two series, one axis: what has been ingested (left of now, solid cyan)
+    // and what is still staged (right of now, dim purple). The step between
+    // them IS the clock's position.
+    const isPast = i < d.now_bucket;
+    const v = isPast ? (past[i] || 0) : (future[i] || 0);
+    const h = (v / peak) * 44;
+    ctx.fillStyle = isPast ? '#7dcfff' : '#3d3560';
+    ctx.fillRect(i * bw, 48 - h, Math.max(1, bw - 0.6), h);
+  }
+
+  const nowX = (d.now_bucket / n) * cssW;
+  ctx.strokeStyle = '#9ece6a';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(nowX, 0);
+  ctx.lineTo(nowX, 50);
+  ctx.stroke();
+
+  $('tl-left').textContent = stampOf(d.window[0]).slice(0, 10);
+  $('tl-right').textContent = stampOf(d.window[1]).slice(0, 10);
+  $('tl-totals').innerHTML =
+    '<span class="cyan">' + num(d.totals.past) + ' ingested</span> · ' +
+    '<span class="purple">' + num(d.totals.future_staged) + ' staged</span>';
+}
+
+/* ── websocket ───────────────────────────────────────────────── */
+function connect() {
+  const badge = $('ws-state');
+  badge.textContent = '● CONNECTING';
+  badge.className = 'badge';
+
+  try {
+    ws = new WebSocket(WS_BASE + '/ws/simulation');
+  } catch (e) {
+    badge.textContent = '● NO SOCKET';
+    badge.className = 'badge dead';
+    return;
+  }
+
+  ws.onopen = function () {
+    wsRetry = 0;
+    badge.textContent = '● STREAMING';
+    badge.className = 'badge live';
+  };
+
+  ws.onmessage = function (evt) {
+    let msg;
+    try { msg = JSON.parse(evt.data); } catch (e) { return; }
+    if (msg.type === 'hello') {
+      applyStatus(msg.status);
+      ingestHits((msg.recent || []).slice().reverse());
+    } else if (msg.type === 'hits') {
+      ingestHits(msg.hits);
+      // A followed vehicle's trail can only change when new rows land.
+      if (followedPlate && msg.hits && msg.hits.some(function (h) { return h.plate === followedPlate; })) {
+        refreshTrail();
+        refreshPrediction();
+      }
+    } else if (msg.type === 'status') {
+      applyStatus(msg.status);
+    } else if (msg.type === 'watchlist') {
+      // Sent on its own channel so an alert does not require filtering every frame.
+      ingestHits([msg.hit]);
+    }
+  };
+
+  ws.onclose = function () {
+    badge.textContent = '● RECONNECTING';
+    badge.className = 'badge dead';
+    // Exponential backoff, capped. A backend restart mid-demo should recover
+    // on its own without hammering the port while it is down.
+    wsRetry = Math.min(wsRetry + 1, 6);
+    setTimeout(connect, 500 * Math.pow(2, wsRetry - 1));
+  };
+
+  ws.onerror = function () { try { ws.close(); } catch (e) {} };
+}
+
+/* ── boot ────────────────────────────────────────────────────── */
+window.addEventListener('load', function () {
+  initMap();
+  connect();
+
+  // Polling fallback for status, so the header is right even if the socket is
+  // blocked by a proxy that does not pass WebSocket upgrades.
+  setInterval(async function () {
+    if (!ws || ws.readyState !== 1) {
+      const res = await api('/simulation/status');
+      if (res.ok) applyStatus(res.body);
+      const hits = await api('/simulation/hits?limit=60');
+      if (hits.ok && hits.body) {
+        feedRows = hits.body.hits || [];
+        if (!feedHeld) renderFeed();
+      }
+    }
+  }, 2000);
+
+  refreshHeatmap();
+  refreshTimeline();
+  setInterval(refreshHeatmap, 4000);
+  setInterval(refreshTimeline, 20000);
+  setInterval(function () { if (followedPlate) refreshPrediction(); }, 8000);
+
+  window.addEventListener('resize', refreshTimeline);
+  $('follow-plate').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') follow();
+  });
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,1692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ANPR // MTMC TRAFFIC RADAR [TERMINAL VIEW]</title>
+  
+  <!-- Monospace typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Leaflet CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+
+  <style>
+    :root {
+      --bg: #090a0f;
+      --panel: #0d0f17;
+      --panel-border: #1e2433;
+      --text: #c0caf5;
+      --text-muted: #565f89;
+      --accent-green: #9ece6a;
+      --accent-cyan: #7dcfff;
+      --accent-amber: #e0af68;
+      --accent-red: #f7768e;
+      --accent-purple: #bb9af7;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      line-height: 1.4;
+      overflow-x: hidden;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Minimalist Linux top bar */
+    header {
+      background-color: #06070a;
+      border-bottom: 1px solid var(--panel-border);
+      padding: 6px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+    }
+
+    .brand-title {
+      font-weight: 800;
+      color: var(--accent-cyan);
+      letter-spacing: -0.5px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .brand-title span.badge {
+      font-size: 10px;
+      padding: 1px 5px;
+      background: #161b26;
+      border: 1px solid var(--panel-border);
+      color: var(--accent-green);
+      font-weight: 500;
+    }
+
+    /* Tabs */
+    .tab-group {
+      display: flex;
+      gap: 4px;
+    }
+
+    .tab-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-muted);
+      font-family: inherit;
+      font-size: 11px;
+      padding: 4px 10px;
+      cursor: pointer;
+      border-radius: 2px;
+      transition: all 0.1s ease;
+    }
+
+    .tab-btn:hover {
+      color: var(--text);
+      background: #131722;
+    }
+
+    .tab-btn.active {
+      background: #161b26;
+      color: var(--accent-cyan);
+      border-color: var(--panel-border);
+      font-weight: 700;
+    }
+
+    /* Main Grid */
+    main {
+      flex: 1;
+      padding: 10px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .grid-surveillance {
+      grid-template-columns: 280px 1fr 340px;
+      height: calc(100vh - 46px);
+    }
+
+    .grid-tab {
+      display: none;
+    }
+
+    .grid-tab.active {
+      display: grid;
+    }
+
+    /* Linux Panel styling */
+    .box {
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 3px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .box-header {
+      background: #080a0f;
+      border-bottom: 1px solid var(--panel-border);
+      padding: 5px 10px;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .box-body {
+      padding: 8px;
+      flex: 1;
+      min-height: 0; /* flex children default to min-height:auto (content-sized), which breaks overflow-y:auto */
+      overflow-y: auto;
+    }
+
+    /* Linux tables */
+    table.cli-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+      text-align: left;
+    }
+
+    table.cli-table th {
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--panel-border);
+      padding: 6px 6px;
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 10px;
+    }
+
+    table.cli-table td {
+      padding: 6px;
+      border-bottom: 1px solid #141824;
+    }
+
+    table.cli-table tr:hover td {
+      background-color: #121622;
+    }
+
+    .status-pill {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      margin-right: 4px;
+    }
+
+    .status-pill.online { background-color: var(--accent-green); }
+    .status-pill.offline { background-color: var(--accent-red); }
+
+    /* Map terminal customization */
+    .leaflet-tile {
+      filter: invert(100%) hue-rotate(180deg) brightness(85%) contrast(110%);
+    }
+
+    .leaflet-container {
+      background-color: #06070a !important;
+    }
+
+    /* Live Feed / Canvas */
+    .canvas-container {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      min-height: 240px;
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      border: 1px solid var(--panel-border);
+    }
+
+    #stream-canvas {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .stream-overlay {
+      position: absolute;
+      top: 6px;
+      left: 8px;
+      pointer-events: none;
+      font-size: 10px;
+      color: var(--accent-green);
+      text-shadow: 0 0 2px #000;
+      background: rgba(0,0,0,0.6);
+      padding: 2px 6px;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    /* Prompt Inputs */
+    .cli-input-group {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+
+    .cli-input {
+      flex: 1;
+      background: #080a0f;
+      border: 1px solid var(--panel-border);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 11px;
+      padding: 5px 8px;
+      border-radius: 2px;
+      outline: none;
+    }
+
+    .cli-input:focus {
+      border-color: var(--accent-cyan);
+    }
+
+    .cli-btn {
+      background: #161b26;
+      border: 1px solid var(--panel-border);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 11px;
+      padding: 5px 12px;
+      cursor: pointer;
+      border-radius: 2px;
+    }
+
+    .cli-btn:hover {
+      background: #21293a;
+      color: var(--accent-cyan);
+    }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--panel-border); }
+    ::-webkit-scrollbar-thumb:hover { background: #323b52; }
+  </style>
+</head>
+<body>
+
+  <!-- TOP BAR -->
+  <header>
+    <div class="brand-title">
+      <span>sys::anpr-radar</span>
+      <span class="badge" id="live-indicator">● IDLE / AWAITING DATA</span>
+    </div>
+
+    <!-- TABS -->
+    <div class="tab-group">
+      <button class="tab-btn active" onclick="showTab('surveillance')">[0] SURVEILLANCE</button>
+      <button class="tab-btn" onclick="showTab('trajectory')">[1] TRAJECTORY-RADAR</button>
+      <button class="tab-btn" onclick="showTab('events')">[2] DETECTION-LOGS</button>
+      <button class="tab-btn" onclick="showTab('alerts')">[3] ALERTS</button>
+      <button class="tab-btn" onclick="showTab('roads')">[4] ROAD-USAGE</button>
+      <a class="tab-btn" href="/app/test" style="text-decoration: none;">[5] SANDBOX</a>
+      <a class="tab-btn" href="/app/benchmarks" style="text-decoration: none;">[6] BENCHMARKS</a>
+      <!-- Opens in its own named window, not a tab: during a demo the live
+           feed belongs on a second screen beside this dashboard, so both are
+           visible at once. The name means repeat clicks focus the existing
+           window instead of stacking new ones. -->
+      <button class="tab-btn" style="color: var(--accent-green);"
+              onclick="openLiveWindow()">[L] LIVE ↗</button>
+    </div>
+
+    <!-- SYSTEM STATS -->
+    <div style="color: var(--text-muted); font-size: 11px; display: flex; gap: 12px; align-items: center;">
+      <span>DB: <span id="db-node-count" style="color: var(--accent-cyan);">0</span> CAM</span>
+      <span><span id="db-event-count" style="color: var(--accent-green);">0</span> EVENTS</span>
+      <span><span id="db-vehicle-count" style="color: var(--accent-purple);">0</span> VEH</span>
+      <span><span id="db-avg-speed" style="color: var(--accent-amber);">--</span> km/h</span>
+      <span style="border-left: 1px solid var(--panel-border); padding-left: 12px;">
+        <span id="compute-device" style="color: var(--text-muted);">cpu</span>
+        CPU <span id="compute-cpu" style="color: var(--accent-cyan);">--</span>%
+        MEM <span id="compute-mem" style="color: var(--accent-cyan);">--</span>
+      </span>
+    </div>
+  </header>
+
+  <!-- TAB 0: SURVEILLANCE -->
+  <main id="tab-surveillance" class="grid-surveillance grid-tab active">
+    <!-- LEFT: Camera List -->
+    <section class="box">
+      <div class="box-header">
+        <span>Active Cameras</span>
+        <button class="cli-btn" style="padding: 2px 6px; font-size: 10px;" onclick="fetchCameras()">REFRESH</button>
+      </div>
+      <div class="box-body" style="padding: 0;">
+        <table class="cli-table" id="cam-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>NAME / LOC</th>
+              <th>STATUS</th>
+            </tr>
+          </thead>
+          <tbody id="camera-tbody">
+            <tr>
+              <td colspan="3" style="text-align: center; color: var(--text-muted); padding: 20px;">
+                No camera nodes configured.<br/>
+                <span style="font-size: 10px;">Load AI City Challenge data or execute ingestion.</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- CENTER: Map View -->
+    <section class="box">
+      <div class="box-header">
+        <span>Spatial GIS Network Map</span>
+        <span>
+          <button class="cli-btn" style="padding: 2px 6px; font-size: 10px;" id="heatmap-toggle-btn" onclick="toggleHeatmap()">HEATMAP: OFF</button>
+          <!-- Two heatmaps, deliberately separate buttons. HISTORIC sums the
+               last 24h out of the database; LIVE sums only what the ingestion
+               clock has promoted in the last few simulated minutes. Merging
+               them into one toggle would make a stalled stream look like
+               healthy traffic, because the 24h history would fill it in. -->
+          <button class="cli-btn" style="padding: 2px 6px; font-size: 10px;" id="live-heat-btn" onclick="toggleLiveHeatmap()">LIVE HEAT: OFF</button>
+          <span id="live-heat-tag" style="color: var(--text-muted); text-transform: none; font-size: 10px;"></span>
+          <span id="active-cam-tag" style="color: var(--accent-cyan); text-transform: none;">none selected</span>
+        </span>
+      </div>
+      <div class="box-body" style="padding: 0; position: relative;">
+        <div id="gis-map" style="width: 100%; height: 100%;"></div>
+      </div>
+    </section>
+
+    <!-- RIGHT: Live Camera View & Real-time OCR -->
+    <section style="display: flex; flex-direction: column; gap: 10px;">
+      <div class="box" style="flex: 1;">
+        <div class="box-header">
+          <span>Camera Stream View</span>
+          <span style="color: var(--accent-green); font-size: 10px;" id="stream-status">OFFLINE</span>
+        </div>
+        <div class="box-body" style="padding: 0;">
+          <div class="canvas-container">
+            <canvas id="stream-canvas"></canvas>
+            <div class="stream-overlay" id="stream-overlay-text">
+              FEED: AWAITING STREAM<br/>FPS: 0.0 | RES: 1920x1080
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="box" style="flex: 1;">
+        <div class="box-header">
+          <span>Recent ANPR Sighting Stream</span>
+          <span style="color: var(--text-muted); font-size: 10px;">LATEST 10</span>
+        </div>
+        <div class="box-body" style="padding: 0;">
+          <table class="cli-table">
+            <thead>
+              <tr>
+                <th>PLATE / ID</th>
+                <th>CAM</th>
+                <th>CONF</th>
+                <th>TIME</th>
+              </tr>
+            </thead>
+            <tbody id="recent-sightings-tbody">
+              <tr>
+                <td colspan="4" style="text-align: center; color: var(--text-muted); padding: 20px;">
+                  No detections recorded.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- TAB 1: TRAJECTORY RADAR -->
+  <main id="tab-trajectory" class="grid-tab" style="grid-template-columns: 320px 1fr; height: calc(100vh - 46px);">
+    <section class="box">
+      <div class="box-header">
+        <span>Trajectory Search</span>
+      </div>
+      <div class="box-body">
+        <div class="cli-input-group">
+          <input type="text" id="traj-query-input" class="cli-input" placeholder="Enter Plate or Track ID..." />
+          <button class="cli-btn" onclick="queryTrajectory()">SEARCH</button>
+        </div>
+
+        <div id="traj-metadata" style="display: none; margin-top: 12px;">
+          <div style="padding: 8px; background: #06070a; border: 1px solid var(--panel-border); margin-bottom: 10px;">
+            <div style="font-size: 14px; font-weight: 700; color: var(--accent-purple);" id="traj-plate-display">---</div>
+            <div style="color: var(--text-muted); font-size: 11px; margin-top: 4px;">
+              Trips: <span id="traj-trip-count" style="color: var(--accent-amber);">0</span> over
+              <span id="traj-day-count" style="color: var(--text);">0</span> days ·
+              Sightings: <span id="traj-nodes-count" style="color: var(--text);">0</span><br/>
+              Est. Avg Velocity: <span id="traj-avg-vel" style="color: var(--accent-cyan);">0 km/h</span>
+            </div>
+            <div id="traj-route-mode" style="font-size: 10px; margin-top: 5px; color: var(--text-muted);"></div>
+          </div>
+
+          <!-- ── The month filter ──────────────────────────────────────────
+               A month of history is dozens of trips. Drawn all at once the map
+               is a solid scribble and the question "where was it on the 14th"
+               is unanswerable. So: filter by day, and by individual trip. -->
+          <div style="font-weight: 700; color: var(--text-muted); font-size: 10px; margin-bottom: 5px; text-transform: uppercase;">
+            Filter
+          </div>
+          <div style="display: flex; gap: 5px; margin-bottom: 6px;">
+            <select class="cli-input" id="traj-day-filter" onchange="applyTrajFilter()" style="flex: 1; font-size: 10px;">
+              <option value="">all days</option>
+            </select>
+            <select class="cli-input" id="traj-trip-filter" onchange="applyTrajFilter()" style="flex: 1; font-size: 10px;">
+              <option value="">all trips</option>
+            </select>
+          </div>
+
+          <!-- Activity bar: one cell per day of the window, shaded by how many
+               sightings fell on it. Click a cell to jump the filter to that
+               day — faster than reading a dropdown of 30 dates. -->
+          <div id="traj-day-strip" style="display: flex; gap: 1px; margin-bottom: 4px; height: 22px;"></div>
+          <div id="traj-strip-caption" style="font-size: 9px; color: var(--text-muted); margin-bottom: 10px; display: flex; justify-content: space-between;"></div>
+
+          <div style="font-weight: 700; color: var(--text-muted); font-size: 10px; margin-bottom: 6px; text-transform: uppercase;">
+            Trips <span id="traj-showing" style="color: var(--accent-cyan); font-weight: 400; text-transform: none;"></span>
+          </div>
+          <div id="traj-timeline-list" style="display: flex; flex-direction: column; gap: 6px;"></div>
+
+          <div style="font-weight: 700; color: var(--text-muted); font-size: 10px; margin: 12px 0 6px; text-transform: uppercase;">
+            ML Next-Location Prediction
+          </div>
+          <div id="traj-prediction-list" style="display: flex; flex-direction: column; gap: 6px;">
+            <div style="color: var(--text-muted); font-size: 11px;">No prediction available yet.</div>
+          </div>
+        </div>
+
+        <div id="traj-empty" style="text-align: center; color: var(--text-muted); padding: 30px 10px;">
+          Search a license plate number or tracking ID to render chronological multi-camera trajectory.
+        </div>
+      </div>
+    </section>
+
+    <section class="box">
+      <div class="box-header">
+        <span>GIS Path Reconstruction</span>
+      </div>
+      <div class="box-body" style="padding: 0;">
+        <div id="traj-map" style="width: 100%; height: 100%;"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- TAB 2: DETECTION LOGS -->
+  <main id="tab-events" class="grid-tab" style="height: calc(100vh - 46px);">
+    <section class="box">
+      <div class="box-header">
+        <span>Raw Vehicle Detection & ANPR Events Log</span>
+        <button class="cli-btn" onclick="fetchRecentEvents()">QUERY ALL</button>
+      </div>
+      <div class="box-body" style="padding: 0;">
+        <table class="cli-table">
+          <thead>
+            <tr>
+              <th>EVENT ID</th>
+              <th>TIMESTAMP</th>
+              <th>CAMERA ID</th>
+              <th>LICENSE PLATE</th>
+              <th>CONFIDENCE</th>
+              <th>VEHICLE TYPE / COLOR</th>
+              <th>SPEED EST.</th>
+            </tr>
+          </thead>
+          <tbody id="all-events-tbody">
+            <tr>
+              <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 30px;">
+                No detection events in database.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <!-- TAB 3: ALERTS -->
+  <main id="tab-alerts" class="grid-tab" style="grid-template-columns: 1fr 320px; height: calc(100vh - 46px); gap: 10px;">
+    <section style="display: flex; flex-direction: column; gap: 10px; min-height: 0;">
+      <section class="box" style="flex: 1; min-height: 0;">
+        <div class="box-header">
+          <span>Watchlist & Speed Defaulter Alerts <span id="ws-live-dot" style="color: var(--text-muted);">○ LIVE</span></span>
+          <button class="cli-btn" onclick="fetchAlerts()">REFRESH</button>
+        </div>
+        <div class="box-body" style="padding: 0;">
+          <table class="cli-table">
+            <thead>
+              <tr>
+                <th>TIME</th>
+                <th>TYPE</th>
+                <th>TARGET</th>
+                <th>CAMERA</th>
+                <th>STATUS</th>
+                <th>DETAILS</th>
+              </tr>
+            </thead>
+            <tbody id="alerts-tbody">
+              <tr>
+                <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 30px;">
+                  No active security alerts or violations triggered.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="box" style="flex: 1; min-height: 0;">
+        <div class="box-header">
+          <span>Checkpoint-Pair Speed Defaulters (report)</span>
+          <button class="cli-btn" onclick="fetchDefaulters()">REFRESH</button>
+        </div>
+        <div class="box-body" style="padding: 0;">
+          <table class="cli-table">
+            <thead>
+              <tr>
+                <th>PLATE</th>
+                <th>ROUTE</th>
+                <th>SPEED</th>
+                <th>EXCESS</th>
+                <th>FINE CATEGORY</th>
+              </tr>
+            </thead>
+            <tbody id="defaulters-tbody">
+              <tr>
+                <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 30px;">
+                  No defaulters loaded — click REFRESH.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
+    <section class="box">
+      <div class="box-header">
+        <span>Blacklist Management</span>
+      </div>
+      <div class="box-body">
+        <div class="cli-input-group" style="flex-direction: column;">
+          <input type="text" id="bl-plate-input" class="cli-input" placeholder="Plate number..." />
+          <input type="text" id="bl-reason-input" class="cli-input" placeholder="Reason..." />
+          <button class="cli-btn" onclick="addToBlacklist()">ADD TO BLACKLIST</button>
+        </div>
+        <div style="font-weight: 700; color: var(--text-muted); font-size: 10px; margin: 12px 0 6px; text-transform: uppercase;">
+          Active Blacklist
+        </div>
+        <div id="blacklist-list" style="display: flex; flex-direction: column; gap: 6px;">
+          <div style="color: var(--text-muted); font-size: 11px;">Loading...</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- TAB 4: ROAD USAGE -->
+  <main id="tab-roads" class="grid-tab" style="grid-template-columns: 1fr 380px; height: calc(100vh - 46px); gap: 10px;">
+    <section class="box">
+      <div class="box-header">
+        <span>Road-Segment Usage Heatmap &mdash; Busiest Corridors</span>
+        <span>
+          <label style="color: var(--text-muted); font-size: 10px;">
+            TOP
+            <input type="number" id="roads-limit" class="cli-input" value="150" min="10" max="500"
+                   style="width: 60px; padding: 2px 4px; font-size: 10px;" />
+          </label>
+          <button class="cli-btn" style="padding: 2px 6px; font-size: 10px;" onclick="loadRoadUsage()">RENDER</button>
+        </span>
+      </div>
+      <div class="box-body" style="padding: 0; position: relative;">
+        <div id="roads-map" style="width: 100%; height: 100%;"></div>
+        <div style="position: absolute; bottom: 8px; left: 8px; background: rgba(6,7,10,0.88);
+                    border: 1px solid var(--panel-border); padding: 6px 8px; font-size: 10px; z-index: 500;">
+          <div style="color: var(--text-muted); margin-bottom: 3px;">TRIPS / SEGMENT</div>
+          <div><span style="color:#9ece6a;">&#9644;&#9644;</span> low
+               <span style="color:#e0af68;">&#9644;&#9644;</span> med
+               <span style="color:#f7768e;">&#9644;&#9644;</span> high</div>
+          <div style="color: var(--text-muted); margin-top: 3px;">width &prop; volume &middot; follows real roads</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="box">
+      <div class="box-header"><span>Busiest Segments</span></div>
+      <div class="box-body" style="padding: 0;">
+        <table class="cli-table">
+          <thead>
+            <tr><th>#</th><th>SEGMENT</th><th>TRIPS</th><th>AVG SPD</th></tr>
+          </thead>
+          <tbody id="roads-tbody">
+            <tr><td colspan="4" style="text-align:center; color: var(--text-muted); padding: 24px;">
+              Click RENDER to compute the busiest corridors.
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // Served by the same FastAPI app, so never hardcode a host — this page has
+    // to work when the demo is opened from another machine on the LAN.
+    const API_BASE = window.location.origin;
+
+    // Delhi. The camera network is built from real OSM traffic signals in the
+    // Delhi NCT bbox, so the map must open there (this previously opened on
+    // Seattle, which put every camera off-screen until a fitBounds landed).
+    const CITY_CENTER = [28.6139, 77.2090];
+    const CITY_ZOOM = 11;
+    let gisMap = null;
+    let trajMap = null;
+    let roadsMap = null;
+    let cameraMarkers = {};
+    let trajLayers = [];      // road-snapped legs + direction arrows
+    let roadLayers = [];      // road-usage segments
+    let heatLayer = null;
+    let heatmapOn = false;
+    let alertsSocket = null;
+
+    document.addEventListener('DOMContentLoaded', () => {
+      initGisMap();
+      fetchCameras();
+      fetchSummary();
+      fetchBlacklist();
+      fetchRecentEvents('recent-sightings-tbody', 10);
+      pollCompute();
+      setInterval(fetchSummary, 5000);
+      setInterval(() => fetchRecentEvents('recent-sightings-tbody', 10), 5000);
+      setInterval(pollCompute, 3000);
+      connectAlertsWebSocket();
+    });
+
+    // ── Small formatting helpers ────────────────────────────────────────────
+    // The backend is a moving target during integration, so read defensively
+    // and render an em-dash rather than "undefined" if a key is missing.
+    function pick(obj, keys, fallback = null) {
+      for (const k of keys) {
+        if (obj && obj[k] !== undefined && obj[k] !== null) return obj[k];
+      }
+      return fallback;
+    }
+    function num(v, digits = 0) {
+      if (v === null || v === undefined || Number.isNaN(Number(v))) return '—';
+      return Number(v).toLocaleString(undefined, {
+        minimumFractionDigits: digits, maximumFractionDigits: digits,
+      });
+    }
+    function mb(v) {
+      if (v === null || v === undefined) return '—';
+      return v >= 1024 ? `${(v / 1024).toFixed(1)}GB` : `${Math.round(v)}MB`;
+    }
+
+    // ── Live compute telemetry (header strip) ───────────────────────────────
+    async function pollCompute() {
+      try {
+        const res = await fetch(`${API_BASE}/jobs/system/compute`);
+        if (!res.ok) throw new Error('compute endpoint unavailable');
+        const d = await res.json();
+        // `device` is a nested profile object ({device:'mps', device_name:'Apple M3', ...}),
+        // so unwrap it rather than stringifying the object itself.
+        const devObj = d.device || d.device_info || d.hardware || {};
+        const dev = (typeof devObj === 'string')
+          ? devObj
+          : pick(devObj, ['device', 'accelerator', 'device_name'], 'cpu');
+        const live = d.current || d.live || d.usage || {};
+        const cpu = pick(live, ['process_cpu_percent', 'cpu_percent', 'system_cpu_percent']);
+        const rss = pick(live, ['rss_mb', 'process_rss_mb', 'memory_mb']);
+        document.getElementById('compute-device').innerText = String(dev).toLowerCase();
+        document.getElementById('compute-cpu').innerText = cpu === null ? '--' : num(cpu, 0);
+        document.getElementById('compute-mem').innerText = rss === null ? '--' : mb(rss);
+      } catch (e) {
+        // Feature router may be disabled; leave the strip inert rather than noisy.
+        document.getElementById('compute-device').innerText = 'n/a';
+      }
+    }
+
+    function connectAlertsWebSocket() {
+      const wsUrl = API_BASE.replace('http', 'ws') + '/ws/alerts';
+      try {
+        alertsSocket = new WebSocket(wsUrl);
+        alertsSocket.onopen = () => {
+          document.getElementById('ws-live-dot').innerHTML = '● LIVE';
+          document.getElementById('ws-live-dot').style.color = 'var(--accent-green)';
+        };
+        alertsSocket.onclose = () => {
+          document.getElementById('ws-live-dot').innerHTML = '○ OFFLINE';
+          document.getElementById('ws-live-dot').style.color = 'var(--accent-red)';
+          setTimeout(connectAlertsWebSocket, 5000);
+        };
+        alertsSocket.onmessage = (evt) => {
+          const msg = JSON.parse(evt.data);
+          if (msg.type === 'alert' && msg.data) {
+            prependAlertRow(msg.data);
+          }
+        };
+      } catch (e) {
+        console.warn('WebSocket unavailable', e);
+      }
+    }
+
+    function alertRowHtml(a) {
+      const typeColor = a.alert_type === 'BLACKLIST' ? 'var(--accent-red)'
+        : a.alert_type === 'SPEED_VIOLATION' ? 'var(--accent-amber)'
+        : 'var(--accent-purple)';
+      return `
+        <tr>
+          <td style="color: var(--text-muted); font-size: 10px;">${a.timestamp || ''}</td>
+          <td style="color: ${typeColor}; font-weight: 700;">${a.alert_type || '---'}</td>
+          <td style="color: var(--accent-cyan); font-weight: 700;">${a.vehicle_id || '---'}</td>
+          <td>${a.camera_id || '---'}</td>
+          <td>${a.status || 'ACTIVE'}</td>
+          <td style="color: var(--text-muted); font-size: 11px;">${a.description || ''}</td>
+        </tr>`;
+    }
+
+    function prependAlertRow(a) {
+      const tbody = document.getElementById('alerts-tbody');
+      if (!tbody) return;
+      if (tbody.children.length === 1 && tbody.children[0].children.length === 1) {
+        tbody.innerHTML = '';
+      }
+      tbody.insertAdjacentHTML('afterbegin', alertRowHtml(a));
+    }
+
+    function showTab(tabName) {
+      document.querySelectorAll('.grid-tab').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+
+      const target = document.getElementById(`tab-${tabName}`);
+      if (target) target.classList.add('active');
+
+      const tabs = ['surveillance', 'trajectory', 'events', 'alerts', 'roads'];
+      const idx = tabs.indexOf(tabName);
+      if (idx !== -1) {
+        document.querySelectorAll('.tab-btn')[idx].classList.add('active');
+      }
+
+      if (tabName === 'surveillance' && gisMap) {
+        setTimeout(() => gisMap.invalidateSize(), 100);
+        fetchRecentEvents('recent-sightings-tbody', 10);
+      } else if (tabName === 'trajectory') {
+        if (!trajMap) {
+          setTimeout(initTrajectoryMap, 100);
+        } else {
+          setTimeout(() => trajMap.invalidateSize(), 100);
+        }
+      } else if (tabName === 'events') {
+        fetchRecentEvents('all-events-tbody', 50);
+      } else if (tabName === 'alerts') {
+        fetchAlerts();
+        fetchDefaulters();
+        fetchBlacklist();
+      } else if (tabName === 'roads') {
+        if (!roadsMap) {
+          setTimeout(() => { initRoadsMap(); loadRoadUsage(); }, 100);
+        } else {
+          setTimeout(() => roadsMap.invalidateSize(), 100);
+        }
+      }
+    }
+
+    function initRoadsMap() {
+      roadsMap = L.map('roads-map').setView(CITY_CENTER, CITY_ZOOM);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap'
+      }).addTo(roadsMap);
+    }
+
+    // ── Road-segment usage heatmap ──────────────────────────────────────────
+    // Draws the busiest camera-to-camera corridors along their REAL road
+    // geometry (from the routing cache) rather than as straight chords, so
+    // "most used roads" actually points at roads. Colour and width encode
+    // trip volume.
+    async function loadRoadUsage() {
+      const tbody = document.getElementById('roads-tbody');
+      const limit = document.getElementById('roads-limit').value || 150;
+      if (!roadsMap) initRoadsMap();
+
+      roadLayers.forEach(l => roadsMap.removeLayer(l));
+      roadLayers = [];
+      tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color: var(--text-muted); padding: 20px;">Computing busiest corridors…</td></tr>`;
+
+      try {
+        const res = await fetch(`${API_BASE}/analytics/road-usage?limit=${limit}`);
+        if (!res.ok) throw new Error(`road-usage unavailable (HTTP ${res.status})`);
+        const segments = await res.json();
+        if (!Array.isArray(segments) || segments.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color: var(--text-muted); padding: 20px;">No road usage recorded yet.</td></tr>`;
+          return;
+        }
+
+        const maxTrips = Math.max(...segments.map(s => pick(s, ['trip_count', 'trips'], 0)));
+        const bounds = [];
+
+        segments.forEach(seg => {
+          const trips = pick(seg, ['trip_count', 'trips'], 0);
+          const share = maxTrips ? trips / maxTrips : 0;
+          const color = share > 0.66 ? '#f7768e' : share > 0.33 ? '#e0af68' : '#9ece6a';
+          const weight = 1.5 + share * 6.5;
+
+          // Prefer real road geometry; fall back to the straight chord so a
+          // missing routing cache degrades visibly rather than blanking the map.
+          let latlngs = pick(seg, ['geometry', 'road_geometry', 'polyline'], null);
+          if (!Array.isArray(latlngs) || latlngs.length < 2) {
+            const a = [pick(seg, ['from_latitude', 'from_lat']), pick(seg, ['from_longitude', 'from_lon', 'from_lng'])];
+            const b = [pick(seg, ['to_latitude', 'to_lat']), pick(seg, ['to_longitude', 'to_lon', 'to_lng'])];
+            if (a[0] == null || b[0] == null) return;
+            latlngs = [a, b];
+          }
+
+          const line = L.polyline(latlngs, { color, weight, opacity: 0.75 }).addTo(roadsMap);
+          const road = pick(seg, ['road', 'road_name'], '');
+          line.bindPopup(
+            `<b>${pick(seg, ['from_camera_id', 'from_camera'], '?')} → ${pick(seg, ['to_camera_id', 'to_camera'], '?')}</b>` +
+            `<br/>${road ? road + '<br/>' : ''}${num(trips)} trips` +
+            `<br/>avg ${num(pick(seg, ['avg_speed_kmh', 'avg_speed'], null), 1)} km/h`
+          );
+          roadLayers.push(line);
+          latlngs.forEach(p => bounds.push(p));
+        });
+
+        if (bounds.length) roadsMap.fitBounds(bounds, { padding: [25, 25] });
+
+        tbody.innerHTML = segments.slice(0, 80).map((seg, i) => `
+          <tr>
+            <td style="color: var(--text-muted);">${i + 1}</td>
+            <td style="font-size: 10px;">
+              <span style="color: var(--accent-cyan);">${pick(seg, ['from_camera_id', 'from_camera'], '?')}</span>
+              → <span style="color: var(--accent-cyan);">${pick(seg, ['to_camera_id', 'to_camera'], '?')}</span>
+              <div style="color: var(--text-muted);">${pick(seg, ['road', 'road_name'], '')}</div>
+            </td>
+            <td style="color: var(--accent-amber);">${num(pick(seg, ['trip_count', 'trips'], 0))}</td>
+            <td>${num(pick(seg, ['avg_speed_kmh', 'avg_speed'], null), 1)}</td>
+          </tr>
+        `).join('');
+      } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color: var(--accent-red); padding: 20px;">${e.message}</td></tr>`;
+      }
+    }
+
+    function initGisMap() {
+      gisMap = L.map('gis-map').setView(CITY_CENTER, CITY_ZOOM);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap'
+      }).addTo(gisMap);
+    }
+
+    function initTrajectoryMap() {
+      trajMap = L.map('traj-map').setView(CITY_CENTER, CITY_ZOOM);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap'
+      }).addTo(trajMap);
+    }
+
+    // ── Road-snapped trajectory rendering ───────────────────────────────────
+    // A vehicle does not travel in straight lines between cameras, so the
+    // route is fetched from the routing service, which returns the real
+    // road polyline per leg plus arrow anchors (lat/lon + bearing) marking
+    // the direction of travel. If that service is unavailable we still draw
+    // the straight chords, but dashed and clearly labelled, so the map is
+    // never silently wrong about which way a car went.
+    function arrowIcon(bearing, color) {
+      return L.divIcon({
+        className: 'traj-arrow',
+        html: `<div style="transform: rotate(${bearing}deg); color:${color};
+                          font-size:15px; line-height:15px; text-shadow:0 0 3px #000;">&#10148;</div>`,
+        iconSize: [15, 15],
+        iconAnchor: [7, 7],
+      });
+    }
+
+    // ── Trips: turning a month of sightings into journeys ───────────────────
+    // A vehicle's month of history is not one path, it is dozens of separate
+    // trips separated by hours of parking. Drawing them as a single polyline
+    // produces a line from the office back to the house at 3am that the
+    // vehicle never drove — and makes "which day was this?" unanswerable.
+    //
+    // A gap longer than TRIP_GAP_MINUTES between consecutive sightings ends a
+    // trip. 45 minutes is chosen against this data: the p99 camera-to-camera
+    // hop in the Delhi network is well under 30 minutes even in the evening
+    // peak, so a 45-minute gap is parking, not congestion.
+    const TRIP_GAP_MINUTES = 45;
+
+    let trajPoints = [];    // every sighting, chronological
+    let trajTrips = [];     // [{index, points, start, end, dayKey}]
+    let trajLegs = [];      // road-snapped legs from the routing service
+    let trajRoadKm = null;
+    let trajSnapped = false;
+    let trajFilter = { day: '', trip: '' };
+
+    function parseTs(value) {
+      if (!value) return null;
+      // Backend timestamps are naive UTC. Without the Z the browser reads them
+      // as local time and every displayed date shifts by the viewer's offset —
+      // which silently moves late-evening trips onto the wrong day.
+      const d = new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(value) ? value : value + 'Z');
+      return isNaN(d) ? null : d;
+    }
+
+    const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    function dayKey(d) {
+      return d.toISOString().slice(0, 10);
+    }
+    function dayLabel(d) {
+      // "Fri 14 Aug" — the weekday matters as much as the date when the
+      // question is whether a pattern is a weekday commute.
+      return `${DOW[d.getUTCDay()]} ${d.getUTCDate()} ${MON[d.getUTCMonth()]}`;
+    }
+    function timeLabel(d) {
+      return d.toISOString().slice(11, 16);
+    }
+    function fullLabel(d) {
+      return `${dayLabel(d)} ${d.getUTCFullYear()} · ${timeLabel(d)} UTC`;
+    }
+
+    function buildTrips(points) {
+      const trips = [];
+      let current = null;
+      points.forEach(p => {
+        const t = parseTs(p.timestamp);
+        if (!t) return;
+        p._t = t;
+        const gapMin = current
+          ? (t - current.points[current.points.length - 1]._t) / 60000
+          : Infinity;
+        if (!current || gapMin > TRIP_GAP_MINUTES) {
+          current = { index: trips.length + 1, points: [p], start: t, end: t };
+          current.dayKey = dayKey(t);
+          trips.push(current);
+        } else {
+          current.points.push(p);
+          current.end = t;
+        }
+      });
+      trips.forEach(tr => {
+        tr.durationMin = (tr.end - tr.start) / 60000;
+        tr.label = `Trip ${tr.index} · ${dayLabel(tr.start)} ${timeLabel(tr.start)}`;
+      });
+      return trips;
+    }
+
+    function tripOfTimestamp(ts) {
+      const t = parseTs(ts);
+      if (!t) return null;
+      for (const tr of trajTrips) {
+        if (t >= tr.start && t <= tr.end) return tr;
+      }
+      return null;
+    }
+
+    function tripPasses(tr) {
+      if (!tr) return !trajFilter.day && !trajFilter.trip;
+      if (trajFilter.trip) return String(tr.index) === trajFilter.trip;
+      if (trajFilter.day) return tr.dayKey === trajFilter.day;
+      return true;
+    }
+
+    function applyTrajFilter() {
+      trajFilter.day = document.getElementById('traj-day-filter').value;
+      trajFilter.trip = document.getElementById('traj-trip-filter').value;
+      // Selecting a specific trip makes the day dropdown redundant; clearing
+      // it avoids the confusing state where the two disagree.
+      if (trajFilter.trip) document.getElementById('traj-day-filter').value = '';
+      renderTrajectory();
+      renderTripList();
+    }
+
+    function selectDay(key) {
+      document.getElementById('traj-trip-filter').value = '';
+      document.getElementById('traj-day-filter').value =
+        (trajFilter.day === key) ? '' : key;   // clicking the active day clears it
+      applyTrajFilter();
+    }
+
+    function buildFilterControls() {
+      const days = [...new Set(trajTrips.map(t => t.dayKey))].sort();
+      const daySel = document.getElementById('traj-day-filter');
+      daySel.innerHTML = `<option value="">all days (${days.length})</option>` +
+        days.map(k => {
+          const d = new Date(k + 'T00:00:00Z');
+          const n = trajTrips.filter(t => t.dayKey === k).length;
+          return `<option value="${k}">${dayLabel(d)} — ${n} trip${n === 1 ? '' : 's'}</option>`;
+        }).join('');
+
+      const tripSel = document.getElementById('traj-trip-filter');
+      tripSel.innerHTML = `<option value="">all trips (${trajTrips.length})</option>` +
+        trajTrips.map(t =>
+          `<option value="${t.index}">#${t.index} ${dayLabel(t.start)} ${timeLabel(t.start)}</option>`
+        ).join('');
+
+      // Day strip: one cell per calendar day between the first and last
+      // sighting, including days with no activity — the gaps are information.
+      const strip = document.getElementById('traj-day-strip');
+      if (!days.length) { strip.innerHTML = ''; return; }
+      const first = new Date(days[0] + 'T00:00:00Z');
+      const last = new Date(days[days.length - 1] + 'T00:00:00Z');
+      const perDay = {};
+      trajTrips.forEach(t => { perDay[t.dayKey] = (perDay[t.dayKey] || 0) + t.points.length; });
+      const peak = Math.max(1, ...Object.values(perDay));
+
+      const cells = [];
+      for (let d = new Date(first); d <= last; d.setUTCDate(d.getUTCDate() + 1)) {
+        const key = dayKey(d);
+        const n = perDay[key] || 0;
+        const alpha = n ? 0.25 + 0.75 * (n / peak) : 0;
+        const active = trajFilter.day === key;
+        cells.push(
+          `<div title="${dayLabel(d)} — ${n} sighting${n === 1 ? '' : 's'}"
+                onclick="selectDay('${key}')"
+                style="flex:1; min-width:3px; cursor:pointer;
+                       background:${n ? `rgba(187,154,247,${alpha})` : '#12151f'};
+                       border:1px solid ${active ? 'var(--accent-cyan)' : 'transparent'};"></div>`
+        );
+      }
+      strip.innerHTML = cells.join('');
+      document.getElementById('traj-strip-caption').innerHTML =
+        `<span>${dayLabel(first)}</span><span>click a day to filter</span><span>${dayLabel(last)}</span>`;
+    }
+
+    function renderTripList() {
+      const list = document.getElementById('traj-timeline-list');
+      const shown = trajTrips.filter(tripPasses);
+      document.getElementById('traj-showing').innerText =
+        shown.length === trajTrips.length ? '' : `(${shown.length} of ${trajTrips.length})`;
+
+      if (!shown.length) {
+        list.innerHTML = `<div style="color: var(--text-muted); font-size: 11px;">No trips match this filter.</div>`;
+        return;
+      }
+
+      list.innerHTML = shown.map(tr => {
+        const stops = tr.points.map((p, i) =>
+          `<div style="color: var(--text-muted); font-size: 10px; padding-left: 8px;">
+             <span style="color: var(--accent-cyan);">${timeLabel(p._t)}</span>
+             ${esc(p.camera_id)}${p.speed ? ` · ${p.speed} km/h` : ''}
+           </div>`
+        ).join('');
+        const active = String(tr.index) === trajFilter.trip;
+        return `
+          <div style="padding: 6px 8px; background: #080a0f;
+                      border: 1px solid ${active ? 'var(--accent-cyan)' : 'var(--panel-border)'};
+                      border-left: 3px solid var(--accent-purple); font-size: 11px; cursor: pointer;"
+               onclick="focusTrip(${tr.index})">
+            <div style="display: flex; justify-content: space-between;">
+              <span style="color: var(--accent-purple); font-weight: 700;">Trip ${tr.index}</span>
+              <span style="color: var(--accent-amber);">${dayLabel(tr.start)}</span>
+            </div>
+            <div style="color: var(--text-muted); font-size: 10px; margin-bottom: 3px;">
+              ${timeLabel(tr.start)}–${timeLabel(tr.end)} UTC ·
+              ${tr.points.length} stop${tr.points.length === 1 ? '' : 's'} ·
+              ${tr.durationMin < 1 ? '<1' : Math.round(tr.durationMin)} min
+            </div>
+            ${stops}
+          </div>`;
+      }).join('');
+    }
+
+    function focusTrip(index) {
+      document.getElementById('traj-day-filter').value = '';
+      document.getElementById('traj-trip-filter').value =
+        (trajFilter.trip === String(index)) ? '' : String(index);
+      applyTrajFilter();
+    }
+
+    function esc(v) {
+      return String(v === null || v === undefined ? '' : v)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    async function drawTrajectory(plate, fallbackPoints) {
+      if (!trajMap) initTrajectoryMap();
+
+      trajPoints = (fallbackPoints || []).slice();
+      trajTrips = buildTrips(trajPoints);
+      trajFilter = { day: '', trip: '' };
+
+      document.getElementById('traj-trip-count').innerText = trajTrips.length;
+      document.getElementById('traj-day-count').innerText =
+        new Set(trajTrips.map(t => t.dayKey)).size;
+
+      const bounds = [];
+      trajRoadKm = null;
+      trajSnapped = false;
+      trajLegs = [];
+
+      try {
+        // The dataset holds a month of history, so ask for the full window —
+        // the endpoint defaults to 24h, which returns no legs for any vehicle
+        // whose last trip was earlier than yesterday.
+        const res = await fetch(
+          `${API_BASE}/routing/trajectory/${encodeURIComponent(plate)}?limit=200&hours=744`);
+        if (!res.ok) throw new Error(`routing unavailable (HTTP ${res.status})`);
+        const data = await res.json();
+        trajLegs = pick(data, ['legs', 'segments'], []) || [];
+        if (!trajLegs.length) throw new Error('no legs returned');
+
+        trajRoadKm = pick(data, ['total_road_km', 'total_distance_km'], null);
+        if (trajRoadKm === null) {
+          const totalM = trajLegs.reduce(
+            (s, l) => s + (pick(l, ['road_distance_m', 'distance_m'], 0) || 0), 0);
+          trajRoadKm = totalM / 1000;
+        }
+        trajSnapped = true;
+      } catch (e) {
+        // Leave trajLegs empty — renderTrajectory() falls back to dashed
+        // straight chords, and says so on the badge.
+        trajSnapped = false;
+      }
+
+      buildFilterControls();
+      renderTrajectory();
+      renderTripList();
+    }
+
+    // Draw whatever the current filter selects. Separated from the fetch so
+    // changing the day or trip is instant and does not re-hit the routing
+    // service for geometry the page already holds.
+    function renderTrajectory() {
+      if (!trajMap) return;
+      trajLayers.forEach(l => trajMap.removeLayer(l));
+      trajLayers = [];
+
+      const bounds = [];
+      const visibleTrips = trajTrips.filter(tripPasses);
+      const visibleKeys = new Set();
+      visibleTrips.forEach(tr => tr.points.forEach(p => visibleKeys.add(p.camera_id + '|' + p.timestamp)));
+
+      // One hue per trip, cycled. Consecutive trips being different colours is
+      // what makes a month of overlapping journeys readable at all.
+      const TRIP_COLORS = ['#bb9af7', '#7dcfff', '#9ece6a', '#e0af68', '#f7768e', '#7aa2f7', '#73daca'];
+      const tripColor = tr => TRIP_COLORS[(tr.index - 1) % TRIP_COLORS.length];
+
+      let drawnRoadKm = 0;
+
+      if (trajLegs.length) {
+        trajLegs.forEach((leg, i) => {
+          const fromTs = pick(leg, ['from_timestamp'], null);
+          const toTs = pick(leg, ['to_timestamp'], null);
+          const trip = tripOfTimestamp(fromTs) || tripOfTimestamp(toTs);
+          if (!tripPasses(trip)) return;
+
+          const geom = pick(leg, ['geometry', 'road_geometry', 'polyline'], null);
+          if (!Array.isArray(geom) || geom.length < 2) return;
+
+          const color = trip ? tripColor(trip) : '#565f89';
+          const line = L.polyline(geom, { color, weight: 4, opacity: 0.9 }).addTo(trajMap);
+
+          const roadM = pick(leg, ['road_distance_m', 'distance_m'], null);
+          const straightM = pick(leg, ['straight_line_m', 'straight_m'], null);
+          const t0 = parseTs(fromTs), t1 = parseTs(toTs);
+          drawnRoadKm += (roadM || 0) / 1000;
+
+          // ── The hover label ──
+          // Hovering a leg answers "when did this happen?" — the day, the
+          // clock time at both ends, and which trip it belongs to — without a
+          // click. bindTooltip rather than bindPopup precisely because a popup
+          // needs a click and closes the previous one; comparing two legs then
+          // takes four interactions instead of moving the mouse.
+          const label =
+            `<b>Trip ${trip ? trip.index : '?'} · Leg ${i + 1}</b><br/>` +
+            (t0 ? `<span style="color:#e0af68">${dayLabel(t0)}</span> ` : '') +
+            (t0 && t1
+              ? `${timeLabel(t0)} → ${timeLabel(t1)} UTC` +
+                (dayKey(t0) !== dayKey(t1) ? ` (+1d)` : '')
+              : '') +
+            `<br/>${pick(leg, ['from_camera_name', 'from_camera_id'], '?')} → ` +
+            `${pick(leg, ['to_camera_name', 'to_camera_id'], '?')}` +
+            `<br/>road ${num(roadM ? roadM / 1000 : null, 2)} km` +
+            (straightM ? ` (straight ${num(straightM / 1000, 2)} km)` : '') +
+            `<br/>${num(pick(leg, ['elapsed_minutes'], null), 1)} min · ` +
+            `${num(pick(leg, ['implied_speed_kmh', 'speed_kmh'], null), 1)} km/h`;
+
+          line.bindTooltip(label, { sticky: true, direction: 'top' });
+          line.bindPopup(label);
+          // Widen on hover so the leg under the cursor is unambiguous when
+          // several overlap on the same road.
+          line.on('mouseover', () => line.setStyle({ weight: 7, opacity: 1 }));
+          line.on('mouseout', () => line.setStyle({ weight: 4, opacity: 0.9 }));
+
+          trajLayers.push(line);
+          geom.forEach(p => bounds.push(p));
+
+          const arrows = pick(leg, ['arrows', 'arrow_anchors'], []) || [];
+          arrows.forEach(a => {
+            const lat = pick(a, ['latitude', 'lat']);
+            const lon = pick(a, ['longitude', 'lon', 'lng']);
+            const brg = pick(a, ['bearing_degrees', 'bearing'], 0);
+            if (lat == null || lon == null) return;
+            const m = L.marker([lat, lon], { icon: arrowIcon(brg, color), interactive: false }).addTo(trajMap);
+            trajLayers.push(m);
+          });
+        });
+      }
+
+      if (!trajLegs.length) {
+        // Fallback: straight chords per trip, dashed, so the difference from
+        // real road geometry is obvious rather than implied.
+        visibleTrips.forEach(tr => {
+          const latlngs = tr.points
+            .map(p => [p.latitude, p.longitude])
+            .filter(p => p[0] && p[1]);
+          if (latlngs.length < 2) return;
+          const line = L.polyline(latlngs, {
+            color: tripColor(tr), weight: 2, dashArray: '5, 6', opacity: 0.9,
+          }).addTo(trajMap);
+          line.bindTooltip(
+            `<b>Trip ${tr.index}</b><br/>` +
+            `<span style="color:#e0af68">${dayLabel(tr.start)}</span> ` +
+            `${timeLabel(tr.start)}–${timeLabel(tr.end)} UTC<br/>` +
+            `straight-line fallback — road routing unavailable`,
+            { sticky: true }
+          );
+          trajLayers.push(line);
+          latlngs.forEach(p => bounds.push(p));
+        });
+      }
+
+      // Stop markers, numbered within their trip and labelled with the day.
+      visibleTrips.forEach(tr => {
+        tr.points.forEach((p, i) => {
+          if (!p.latitude || !p.longitude) return;
+          const isFirst = i === 0, isLast = i === tr.points.length - 1;
+          const m = L.circleMarker([p.latitude, p.longitude], {
+            radius: isFirst || isLast ? 6 : 4,
+            color: isLast ? '#f7768e' : isFirst ? '#9ece6a' : tripColor(tr),
+            fillColor: '#090a0f', fillOpacity: 1, weight: 2,
+          }).addTo(trajMap);
+          m.bindTooltip(
+            `<b>Trip ${tr.index}, stop ${i + 1}/${tr.points.length}</b>` +
+            (isFirst ? ' <span style="color:#9ece6a">start</span>' : '') +
+            (isLast ? ' <span style="color:#f7768e">end</span>' : '') +
+            `<br/><span style="color:#e0af68">${fullLabel(p._t)}</span>` +
+            `<br/>${esc(p.camera_id)}` +
+            `<br/>${p.speed != null ? num(p.speed, 1) + ' km/h' : 'speed —'}` +
+            (p.direction ? ` · ${esc(p.direction)}` : ''),
+            { sticky: true, direction: 'top' }
+          );
+          trajLayers.push(m);
+          bounds.push([p.latitude, p.longitude]);
+        });
+      });
+
+      if (bounds.length) trajMap.fitBounds(bounds, { padding: [40, 40] });
+
+      const badge = document.getElementById('traj-route-mode');
+      if (badge) {
+        const scope = (trajFilter.trip || trajFilter.day)
+          ? ` <span style="color: var(--accent-cyan);">[filtered]</span>` : '';
+        badge.innerHTML = trajSnapped
+          ? `<span style="color: var(--accent-green);">● ROAD-SNAPPED</span> ` +
+            `${num(drawnRoadKm, 2)} km drawn of ${num(trajRoadKm, 2)} km total${scope}`
+          : `<span style="color: var(--accent-amber);">○ STRAIGHT-LINE FALLBACK</span> (routing offline)${scope}`;
+      }
+    }
+
+    async function fetchSummary() {
+      try {
+        const camRes = await fetch(`${API_BASE}/cameras`);
+        if (camRes.ok) {
+          const data = await camRes.json();
+          document.getElementById('db-node-count').innerText = data.length || 0;
+          if (data.length > 0) {
+            document.getElementById('live-indicator').innerText = `● ${data.length} NODES CONFIGURED`;
+            document.getElementById('live-indicator').style.color = 'var(--accent-green)';
+          }
+        }
+        const res = await fetch(`${API_BASE}/analytics/summary`);
+        if (res.ok) {
+          const s = await res.json();
+          // 12M+ events need thousands separators to be readable at a glance.
+          document.getElementById('db-event-count').innerText = num(s.total_detections ?? 0);
+          document.getElementById('db-vehicle-count').innerText = num(s.unique_vehicles ?? 0);
+          document.getElementById('db-avg-speed').innerText = s.avg_speed_kmh ?? '--';
+        }
+      } catch (e) {}
+    }
+
+    async function toggleHeatmap() {
+      heatmapOn = !heatmapOn;
+      const btn = document.getElementById('heatmap-toggle-btn');
+      if (heatmapOn) {
+        btn.innerText = 'HEATMAP: ON';
+        btn.style.color = 'var(--accent-green)';
+        await fetchHeatmap();
+      } else {
+        btn.innerText = 'HEATMAP: OFF';
+        btn.style.color = '';
+        if (heatLayer) {
+          gisMap.removeLayer(heatLayer);
+          heatLayer = null;
+        }
+      }
+    }
+
+    async function fetchHeatmap() {
+      try {
+        const res = await fetch(`${API_BASE}/analytics/heatmap?hours=24`);
+        if (!res.ok) throw new Error('Heatmap fetch failed');
+        const points = await res.json();
+        const heatPoints = points
+          .filter(p => p.latitude && p.longitude)
+          .map(p => [p.latitude, p.longitude, Math.min(1, p.weight / 50)]);
+        if (heatLayer) gisMap.removeLayer(heatLayer);
+        heatLayer = L.heatLayer(heatPoints, { radius: 35, blur: 25, maxZoom: 17 }).addTo(gisMap);
+      } catch (e) {
+        console.warn('Heatmap unavailable', e);
+      }
+    }
+
+    // ── Live heatmap, fed by the ingestion clock ────────────────────────────
+    // Distinct from fetchHeatmap() above in both source and meaning: that one
+    // aggregates 24h out of the database, this one sums only the sightings the
+    // simulation clock has promoted in the last few SIMULATED minutes. It is
+    // therefore empty when nothing is being ingested — which is the point. A
+    // panel labelled "live" that quietly falls back to yesterday's traffic is
+    // worse than one that says it has nothing.
+    let liveHeatOn = false;
+    let liveHeatLayer = null;
+    let liveHeatTimer = null;
+
+    async function toggleLiveHeatmap() {
+      liveHeatOn = !liveHeatOn;
+      const btn = document.getElementById('live-heat-btn');
+      const tag = document.getElementById('live-heat-tag');
+      if (liveHeatOn) {
+        btn.innerText = 'LIVE HEAT: ON';
+        btn.style.color = 'var(--accent-green)';
+        await refreshLiveHeatmap();
+        // 4s: fast enough to look live at any clock speed, slow enough that
+        // the in-memory aggregation never becomes the busiest thing running.
+        liveHeatTimer = setInterval(refreshLiveHeatmap, 4000);
+      } else {
+        btn.innerText = 'LIVE HEAT: OFF';
+        btn.style.color = '';
+        tag.innerHTML = '';
+        if (liveHeatTimer) { clearInterval(liveHeatTimer); liveHeatTimer = null; }
+        if (liveHeatLayer) { gisMap.removeLayer(liveHeatLayer); liveHeatLayer = null; }
+      }
+    }
+
+    async function refreshLiveHeatmap() {
+      if (!liveHeatOn || !gisMap) return;
+      const tag = document.getElementById('live-heat-tag');
+      try {
+        const res = await fetch(`${API_BASE}/simulation/heatmap?minutes=15`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const points = (data.points || []).filter(p => p.latitude && p.longitude);
+
+        if (liveHeatLayer) gisMap.removeLayer(liveHeatLayer);
+        liveHeatLayer = L.heatLayer(
+          points.map(p => [p.latitude, p.longitude, Math.max(0.08, p.intensity)]),
+          {
+            radius: 30, blur: 22, maxZoom: 17, minOpacity: 0.25,
+            // A distinct ramp from the historic layer so the two are never
+            // mistaken for each other when both are on.
+            gradient: { 0.0: '#3b4a6b', 0.35: '#7dcfff', 0.6: '#9ece6a', 0.8: '#e0af68', 1.0: '#f7768e' },
+          }
+        ).addTo(gisMap);
+
+        if (!points.length) {
+          tag.innerHTML = `<span style="color: var(--accent-amber);">no live ingestion</span>`;
+        } else {
+          tag.innerHTML =
+            `<span style="color: var(--accent-green);">● ${num(data.total_events)} ev</span>` +
+            ` / ${data.window_minutes}m across ${data.active_cameras} cams`;
+        }
+      } catch (e) {
+        tag.innerHTML = `<span style="color: var(--accent-amber);">clock offline</span>`;
+      }
+    }
+
+    function openLiveWindow() {
+      // A real second window with its own toolbar-free chrome, named so a
+      // repeat click focuses it rather than opening another copy.
+      const w = window.open(
+        '/app/live', 'anpr-live-ingestion',
+        'width=1500,height=900,menubar=no,toolbar=no,location=no,status=no'
+      );
+      if (w) w.focus();
+      else window.open('/app/live', '_blank');   // popup blocker — fall back to a tab
+    }
+
+    async function fetchCameras() {
+      const tbody = document.getElementById('camera-tbody');
+      try {
+        const res = await fetch(`${API_BASE}/cameras`);
+        if (!res.ok) throw new Error('API offline');
+        const cameras = await res.json();
+
+        if (!cameras || cameras.length === 0) {
+          tbody.innerHTML = `
+            <tr>
+              <td colspan="3" style="text-align: center; color: var(--text-muted); padding: 20px;">
+                No camera nodes configured.<br/>
+                <span style="font-size: 10px;">Load AI City Challenge data or execute ingestion.</span>
+              </td>
+            </tr>`;
+          return;
+        }
+
+        tbody.innerHTML = cameras.map(c => `
+          <tr style="cursor: pointer;" onclick="focusCamera('${c.camera_id || c.id}', ${c.latitude}, ${c.longitude}, '${c.name}')">
+            <td style="color: var(--accent-cyan); font-weight: 700;">${c.camera_id || c.id}</td>
+            <td>${c.name || 'Camera Node'}</td>
+            <td><span class="status-pill online"></span><span style="font-size: 10px; color: var(--accent-green);">ONLINE</span></td>
+          </tr>
+        `).join('');
+
+        // Update markers
+        const bounds = [];
+        cameras.forEach(c => {
+          if (c.latitude && c.longitude) {
+            bounds.push([c.latitude, c.longitude]);
+            if (!cameraMarkers[c.camera_id || c.id]) {
+              const marker = L.circleMarker([c.latitude, c.longitude], {
+                radius: 6,
+                color: '#7dcfff',
+                fillColor: '#090a0f',
+                fillOpacity: 0.9,
+                weight: 2
+              }).addTo(gisMap);
+              marker.bindPopup(`<b>${c.camera_id || c.id}</b>: ${c.name}`);
+              cameraMarkers[c.camera_id || c.id] = marker;
+            }
+          }
+        });
+
+        if (bounds.length > 0) {
+          gisMap.fitBounds(bounds, { padding: [30, 30] });
+        }
+      } catch (e) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="3" style="text-align: center; color: var(--accent-red); padding: 20px;">
+              Failed connecting to backend on ${API_BASE}.
+            </td>
+          </tr>`;
+      }
+    }
+
+    function focusCamera(id, lat, lng, name) {
+      document.getElementById('active-cam-tag').innerText = `node: [${id}] ${name}`;
+      if (gisMap && lat && lng) {
+        gisMap.setView([lat, lng], 15);
+      }
+    }
+
+    async function queryTrajectory() {
+      const plate = document.getElementById('traj-query-input').value.trim();
+      if (!plate) return;
+
+      const meta = document.getElementById('traj-metadata');
+      const empty = document.getElementById('traj-empty');
+
+      try {
+        const res = await fetch(`${API_BASE}/vehicles/${encodeURIComponent(plate)}/trajectory`);
+        if (!res.ok) throw new Error('Not found');
+        const data = await res.json();
+
+        empty.style.display = 'none';
+        meta.style.display = 'block';
+
+        document.getElementById('traj-plate-display').innerText = plate;
+        document.getElementById('traj-nodes-count').innerText = data.points ? data.points.length : 0;
+
+        // Draws the road-snapped path grouped into trips, builds the day/trip
+        // filters, and renders the trip list. Falls back to straight chords if
+        // the routing service is unavailable — see drawTrajectory.
+        await drawTrajectory(plate, data.points || []);
+
+        fetchPrediction(plate);
+      } catch (e) {
+        empty.style.display = 'block';
+        meta.style.display = 'none';
+        empty.innerHTML = `<span style="color: var(--accent-red);">No trajectory found for "${plate}".</span>`;
+        document.getElementById('traj-prediction-list').innerHTML =
+          `<div style="color: var(--text-muted); font-size: 11px;">No prediction available yet.</div>`;
+      }
+    }
+
+    async function fetchPrediction(plate) {
+      const list = document.getElementById('traj-prediction-list');
+      try {
+        const res = await fetch(`${API_BASE}/vehicles/${encodeURIComponent(plate)}/predict-next-location?top_n=3`);
+        if (!res.ok) throw new Error('No prediction');
+        const data = await res.json();
+        const dests = data.predicted_destinations || [];
+        if (dests.length === 0) {
+          list.innerHTML = `<div style="color: var(--text-muted); font-size: 11px;">No historical routes to predict from yet.</div>`;
+          return;
+        }
+        list.innerHTML = dests.map((d, i) => `
+          <div style="padding: 6px 8px; background: #080a0f; border: 1px solid var(--panel-border); font-size: 11px;">
+            <span style="color: var(--accent-green); font-weight: 700;">#${i+1} ${d.camera_id}</span>
+            <span style="color: var(--text-muted);"> (${d.camera_name || ''})</span>
+            <div style="color: var(--text-muted); font-size: 10px;">
+              Probability: ${(d.probability * 100).toFixed(1)}% • ETA: ${d.eta_minutes} min • ${d.distance_km} km •
+              Congestion: <span style="color: var(--accent-amber);">${d.congestion}</span> •
+              Priority: <span style="color: var(--accent-red);">${d.interception_priority}</span>
+            </div>
+          </div>
+        `).join('');
+      } catch (e) {
+        list.innerHTML = `<div style="color: var(--text-muted); font-size: 11px;">No prediction available yet.</div>`;
+      }
+    }
+
+    async function fetchRecentEvents(tbodyId, limit) {
+      const tbody = document.getElementById(tbodyId);
+      const colspan = tbodyId === 'recent-sightings-tbody' ? 4 : 7;
+      try {
+        const res = await fetch(`${API_BASE}/events/recent?limit=${limit}`);
+        if (!res.ok) throw new Error('Failed');
+        const events = await res.json();
+        if (!events || events.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="${colspan}" style="text-align: center; color: var(--text-muted); padding: 20px;">No detection events found.</td></tr>`;
+          return;
+        }
+        if (tbodyId === 'recent-sightings-tbody') {
+          tbody.innerHTML = events.map(e => `
+            <tr>
+              <td style="color: var(--accent-purple); font-weight: 700;">${e.plate || e.global_vehicle_id || 'UNKNOWN'}</td>
+              <td style="color: var(--accent-cyan);">${e.camera_id}</td>
+              <td>${e.plate_confidence ? (e.plate_confidence * 100).toFixed(0) + '%' : 'N/A'}</td>
+              <td style="font-size: 10px;">${(e.timestamp || '').slice(11, 19) || e.timestamp}</td>
+            </tr>
+          `).join('');
+        } else {
+          tbody.innerHTML = events.map(e => `
+            <tr>
+              <td style="color: var(--text-muted); font-size: 10px;">${(e.event_id || '').slice(0, 8)}</td>
+              <td>${e.timestamp}</td>
+              <td style="color: var(--accent-cyan);">${e.camera_id}</td>
+              <td style="color: var(--accent-purple); font-weight: 700;">${e.plate || 'UNKNOWN'}</td>
+              <td>${e.plate_confidence ? (e.plate_confidence * 100).toFixed(1) + '%' : 'N/A'}</td>
+              <td>${e.vehicle_type || 'Vehicle'}</td>
+              <td style="color: var(--accent-amber);">${e.speed ? e.speed.toFixed(1) + ' km/h' : '---'}</td>
+            </tr>
+          `).join('');
+        }
+      } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="${colspan}" style="text-align: center; color: var(--accent-red); padding: 20px;">Error fetching events.</td></tr>`;
+      }
+    }
+
+    async function fetchAlerts() {
+      const tbody = document.getElementById('alerts-tbody');
+      try {
+        const res = await fetch(`${API_BASE}/alerts?status=ACTIVE`);
+        if (!res.ok) throw new Error('Failed');
+        const alerts = await res.json();
+        if (!alerts || alerts.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 30px;">No active security alerts or violations triggered.</td></tr>`;
+          return;
+        }
+        tbody.innerHTML = alerts.map(alertRowHtml).join('');
+      } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--accent-red); padding: 30px;">Error fetching alerts.</td></tr>`;
+      }
+    }
+
+    async function fetchDefaulters() {
+      const tbody = document.getElementById('defaulters-tbody');
+      try {
+        const res = await fetch(`${API_BASE}/vehicles/analytics/speed-defaulters?hours=24`);
+        if (!res.ok) throw new Error('Failed');
+        const data = await res.json();
+        const defaulters = data.defaulters || [];
+        if (defaulters.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 20px;">No speed defaulters in the last 24h.</td></tr>`;
+          return;
+        }
+        tbody.innerHTML = defaulters.slice(0, 50).map(d => `
+          <tr>
+            <td style="color: var(--accent-cyan); font-weight: 700;">${d.plate}</td>
+            <td style="font-size: 10px;">${d.from_camera} → ${d.to_camera}</td>
+            <td style="color: var(--accent-amber);">${d.effective_speed_kmh} km/h</td>
+            <td style="color: var(--accent-red);">+${d.excess_speed_kmh}</td>
+            <td style="font-size: 10px;">${d.fine_category}</td>
+          </tr>
+        `).join('');
+      } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--accent-red); padding: 20px;">Error fetching defaulters.</td></tr>`;
+      }
+    }
+
+    async function fetchBlacklist() {
+      const box = document.getElementById('blacklist-list');
+      try {
+        const res = await fetch(`${API_BASE}/alerts/blacklist`);
+        if (!res.ok) throw new Error('Failed');
+        const entries = await res.json();
+        if (!entries || entries.length === 0) {
+          box.innerHTML = `<div style="color: var(--text-muted); font-size: 11px;">No plates blacklisted.</div>`;
+          return;
+        }
+        box.innerHTML = entries.map(b => `
+          <div style="padding: 6px 8px; background: #080a0f; border: 1px solid var(--panel-border); font-size: 11px; display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <span style="color: var(--accent-red); font-weight: 700;">${b.plate}</span>
+              <div style="color: var(--text-muted); font-size: 10px;">${b.reason || 'No reason given'}</div>
+            </div>
+            <button class="cli-btn" style="padding: 2px 6px; font-size: 10px;" onclick="removeFromBlacklist('${b.plate}')">X</button>
+          </div>
+        `).join('');
+      } catch (e) {
+        box.innerHTML = `<div style="color: var(--accent-red); font-size: 11px;">Error loading blacklist.</div>`;
+      }
+    }
+
+    async function addToBlacklist() {
+      const plate = document.getElementById('bl-plate-input').value.trim();
+      const reason = document.getElementById('bl-reason-input').value.trim();
+      if (!plate) return;
+      try {
+        await fetch(`${API_BASE}/alerts/blacklist`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ plate, reason: reason || null }),
+        });
+        document.getElementById('bl-plate-input').value = '';
+        document.getElementById('bl-reason-input').value = '';
+        fetchBlacklist();
+      } catch (e) {}
+    }
+
+    async function removeFromBlacklist(plate) {
+      try {
+        await fetch(`${API_BASE}/alerts/blacklist/${encodeURIComponent(plate)}`, { method: 'DELETE' });
+        fetchBlacklist();
+      } catch (e) {}
+    }
+  </script>
+</body>
+</html>

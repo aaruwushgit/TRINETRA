@@ -1,0 +1,71 @@
+# Phase 2 detector training.
+#
+# Committed so a result can be reproduced from the repo rather than from a
+# Colab cell nobody kept. Change values here, not in the notebook — the
+# notebook loads this file, and a run writes its resolved settings plus the
+# Ultralytics version to provenance.json beside the weights.
+
+# yolov8s over yolov8n: Phase 3 gates on mAP@50 >= 0.85, and plates are small
+# objects where the extra capacity earns its keep. If Phase 9 then falls short
+# of 15 FPS on the M4, retrain at yolov8n rather than compromising accuracy
+# now for a constraint that may not bind.
+model: yolov8s.pt
+
+# 640 is the Ultralytics default and sufficient here: the median plate is
+# 119x40 px in a dataset that is mostly 640-1280 wide, so plates survive the
+# resize. Raising to 960 would help the 1.6% of plates under 32 px, at roughly
+# double the training time — worth revisiting only if Phase 3 shows the
+# small-object slice dragging the score down.
+imgsz: 640
+
+epochs: 100
+batch: 16
+
+# Stop when 25 epochs pass without improvement. A Colab session is finite and
+# a plateaued run is just spending it.
+patience: 25
+
+seed: 0
+
+# --- Augmentation, tuned for plates ---------------------------------------
+# A plate is a small, rigid, text-bearing rectangle seen from a camera above
+# bumper height. That makes some COCO defaults wrong in both directions.
+
+# Plates are photographed rotated and off-axis. Ultralytics defaults both of
+# these to zero, which under-trains exactly the variation this task has.
+degrees: 10.0
+perspective: 0.0005
+shear: 2.0
+
+translate: 0.10
+scale: 0.50
+
+# A plate is never upside down; vertical flips train an impossible input.
+flipud: 0.0
+
+# Left at the Ultralytics default rather than disabled. Mirrored plates do not
+# exist either, so there is a real argument for 0.0 — but detection only has
+# to find a bright rectangle, and halving the effective dataset is the bigger
+# risk. Phase 3 should ablate this rather than settle it by taste.
+fliplr: 0.5
+
+# Mosaic tiles four images together, shrinking objects into the small-object
+# regime plates already occupy. Disabling it for the last 10 epochs lets the
+# model settle on undistorted images before training ends.
+mosaic: 1.0
+close_mosaic: 10
+
+# Plate capture varies hugely in lighting: headlights, dusk, direct sun.
+hsv_h: 0.015
+hsv_s: 0.7
+hsv_v: 0.4
+
+# --- Runtime ---------------------------------------------------------------
+device: "0"
+workers: 8
+
+# Colab's disk is fast enough that RAM caching mostly buys risk of an OOM.
+cache: false
+
+# Set true to continue an interrupted run from its last checkpoint.
+resume: false

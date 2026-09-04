@@ -1,0 +1,15 @@
+uploads/*
+.venv
+*.zip
+.ipynb*
+dataset/*
+raw/*
+results/*
+runs/*
+models/best.pt
+cookies/*
+.env
+__pycache__
+!cookies/.gitkeep
+*.md
+!README.md

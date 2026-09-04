@@ -1,0 +1,5 @@
+path: /Users/aarushsharma/Documents/SIH/vehicle-intelligence-backend/training/fast_motion/dataset
+train: images/train
+val: images/val
+nc: 1
+names: [plate]
