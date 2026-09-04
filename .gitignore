@@ -1,0 +1,22 @@
+*.DS_Store
+
+# local editor / assistant state
+.obsidian/
+.claude/settings.local.json
+
+# large local artifacts (not tracked, kept on disk)
+archive/
+vehicle_models.zip
+vehicle_models/
+
+# python
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# service-local data (services are their own submodules with their own .gitignore too)
+services/**/dev.db*
+services/**/sandbox_dbs/
+services/**/uploads/
+services/**/job_outputs/

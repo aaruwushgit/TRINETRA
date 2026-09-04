@@ -1,0 +1,104 @@
+# Single entrypoint for the whole platform: `docker compose up --build`
+# from the repo root brings up Postgres/PostGIS, Redis, Kafka, the Kafka
+# consumer, and the backend — which itself serves the frontend (dashboard,
+# live view, sandbox, benchmarks) as static pages, so there is no separate
+# frontend container. Open http://localhost:8000/app once it's up.
+services:
+  postgres:
+    image: postgis/postgis:15-3.3
+    container_name: vehicle_postgres
+    environment:
+      POSTGRES_DB: vehicle_intelligence
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: vehicle_redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: vehicle_zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: vehicle_kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  # Backend + frontend in one container: FastAPI serves the dashboard,
+  # sandbox, live view and benchmarks pages as static files (see
+  # services/backend/backend/main.py), and bundles the ALPR service
+  # (services/alpr) as a real dependency, not a stub.
+  backend:
+    build:
+      context: .
+      dockerfile: services/backend/Dockerfile
+    container_name: vehicle_backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgrespassword@postgres:5432/vehicle_intelligence
+      REDIS_URL: redis://redis:6379/0
+      USE_REDIS: "true"
+      KAFKA_BROKER: kafka:29092
+      USE_KAFKA: "true"
+      ANPR_WEIGHTS_PATH: /app/alpr/best.pt
+      ANPR_REPO_PATH: /app/alpr
+      ANPR_DEVICE: cpu
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+
+  kafka_consumer:
+    build:
+      context: .
+      dockerfile: services/backend/Dockerfile
+    container_name: vehicle_kafka_consumer
+    command: python scripts/run_kafka_consumer.py
+    environment:
+      DATABASE_URL: postgresql://postgres:postgrespassword@postgres:5432/vehicle_intelligence
+      REDIS_URL: redis://redis:6379/0
+      USE_REDIS: "true"
+      KAFKA_BROKER: kafka:29092
+      USE_KAFKA: "true"
+      ANPR_WEIGHTS_PATH: /app/alpr/best.pt
+      ANPR_REPO_PATH: /app/alpr
+      ANPR_DEVICE: cpu
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
