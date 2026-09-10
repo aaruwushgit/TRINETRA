@@ -38,6 +38,35 @@ def get_redis():
     return _redis_client
 
 
+_async_redis_client = None
+
+
+async def get_async_redis():
+    """Async Redis instance for the WebSocket streams, or None if unavailable.
+
+    Separate from `get_redis` because the sync client's pubsub read blocks the
+    thread for its entire timeout. On the event loop that stalls every other
+    request the worker is serving, so the live streams need a client that
+    actually yields while it waits.
+    """
+    global _async_redis_client
+    if not settings.USE_REDIS:
+        return None
+
+    if _async_redis_client is None:
+        try:
+            import redis.asyncio as aioredis
+
+            client = aioredis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
+            await client.ping()
+            _async_redis_client = client
+        except Exception as err:
+            print(f"⚠️ Async Redis connection warning: {err}. Live streams disabled.")
+            return None
+
+    return _async_redis_client
+
+
 # In-process fallback cache.
 #
 # The analytics endpoints aggregate over the whole event table, which on a

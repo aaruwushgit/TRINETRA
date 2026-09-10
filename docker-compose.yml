@@ -65,8 +65,18 @@ services:
     container_name: vehicle_backend
     ports:
       - "8000:8000"
+    volumes:
+      # The populated database (12.8M Delhi events) lives on the host. The
+      # *directory* is mounted, not the file, because SQLite writes -wal and
+      # -shm alongside the database and cannot create them into a file mount.
+      - ./services/backend:/data
+      # The bundled demo clips are referenced by absolute host path, hardcoded
+      # in both frontend/test.html (ARCHIVE_DIR) and backend/api/jobs.py
+      # (ALLOWED_SOURCE_ROOTS), so the archive is mounted at that same path
+      # inside the container and both keep resolving unchanged.
+      - ./archive:/Users/aarushsharma/Documents/SIH/archive:ro
     environment:
-      DATABASE_URL: postgresql://postgres:postgrespassword@postgres:5432/vehicle_intelligence
+      DATABASE_URL: sqlite:////data/dev.db
       REDIS_URL: redis://redis:6379/0
       USE_REDIS: "true"
       KAFKA_BROKER: kafka:29092
@@ -82,14 +92,35 @@ services:
       kafka:
         condition: service_started
 
+  # Keeps "now" populated. Without it the dashboard shows a month of history
+  # that stops several days ago, so every last-hour panel reads zero.
+  live_feeder:
+    build:
+      context: .
+      dockerfile: services/backend/Dockerfile
+    container_name: vehicle_live_feeder
+    command: python scripts/live_event_feeder.py --events-per-sec 20 --diurnal-rate
+    volumes:
+      - ./services/backend:/data
+    environment:
+      DATABASE_URL: sqlite:////data/dev.db
+      REDIS_URL: redis://redis:6379/0
+      USE_REDIS: "true"
+      USE_KAFKA: "false"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
   kafka_consumer:
     build:
       context: .
       dockerfile: services/backend/Dockerfile
     container_name: vehicle_kafka_consumer
     command: python scripts/run_kafka_consumer.py
+    volumes:
+      - ./services/backend:/data
     environment:
-      DATABASE_URL: postgresql://postgres:postgrespassword@postgres:5432/vehicle_intelligence
+      DATABASE_URL: sqlite:////data/dev.db
       REDIS_URL: redis://redis:6379/0
       USE_REDIS: "true"
       KAFKA_BROKER: kafka:29092

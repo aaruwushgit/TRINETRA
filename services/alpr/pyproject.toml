@@ -36,8 +36,12 @@ dependencies = [
 #
 #   pip install paddlepaddle-gpu -i https://www.paddlepaddle.org.cn/packages/stable/cu126/
 ocr = [
-    "paddlepaddle>=3.3",
+    "paddlepaddle>=3.2",
     "paddleocr>=3.7",
+    # paddlepaddle's native inference engine segfaults loading PIR-format
+    # models on arm64 (Predictor::Init -> SaveOrLoadPirParameters). ocr.py
+    # falls back to the onnxruntime engine on arm64, which needs this.
+    "onnxruntime>=1.18",
 ]
 # Local live-camera modes (Phase 9). Needs the GUI build of OpenCV, which
 # conflicts with the headless wheel above, so it is never installed alongside gpu.

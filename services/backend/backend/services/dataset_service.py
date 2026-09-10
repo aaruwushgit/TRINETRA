@@ -669,15 +669,20 @@ def _set_busy_timeout(session, milliseconds: int = 15_000) -> None:
     The bound matters as much as the retry: with no timeout at all the ingest
     waits indefinitely, which is how a stuck upload turns into a hung request
     that never answers.
+
+    The dialect is checked *before* the statement is sent, not after it fails.
+    Postgres has no such pragma, and swallowing the resulting error is not
+    enough there: the failed statement aborts the surrounding transaction, so
+    every subsequent query dies with 'current transaction is aborted' and the
+    whole ingest fails on a line that was meant to be a no-op.
     """
     from sqlalchemy import text
 
-    try:
-        session.execute(text(f"PRAGMA busy_timeout={int(milliseconds)}"))
-    except Exception:
-        # Not SQLite (Postgres has no such pragma) — irrelevant there, since
-        # concurrent writers are the normal case.
-        pass
+    bind = session.get_bind()
+    if bind is None or bind.dialect.name != "sqlite":
+        return
+
+    session.execute(text(f"PRAGMA busy_timeout={int(milliseconds)}"))
 
 
 def _upsert_cameras(session, cameras: list[dict[str, Any]], deployment: str) -> tuple[int, int]:

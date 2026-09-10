@@ -187,6 +187,17 @@ def prepare(crop, settings: Preprocess | None = None):
     return out
 
 
+def _paddle_static_engine_is_unreliable() -> bool:
+    """True on CPU architectures where paddle's native inference engine
+    (paddle_static) is known to segfault loading PIR-format models — arm64
+    being the one this project actually ships on (Apple Silicon dev machines,
+    Graviton). x86_64 is unaffected, so it keeps using the native engine.
+    """
+    import platform
+
+    return platform.machine().lower() in {"arm64", "aarch64"}
+
+
 class PlateReader:
     """Reads plate crops with PaddleOCR.
 
@@ -221,6 +232,16 @@ class PlateReader:
                 kwargs["model_name"] = self.model_name
             if self.device:
                 kwargs["device"] = self.device
+            # paddlepaddle's native inference engine (paddle_static) segfaults
+            # loading PIR-format models on non-x86 CPUs — reproduced directly
+            # via paddlex's create_predictor, independent of this codebase
+            # (SIGSEGV inside Predictor::Init -> ...::SaveOrLoadPirParameters).
+            # onnxruntime is a separate, working inference backend for the
+            # same model and sidesteps the bug entirely. Only default to it
+            # when nothing else was requested, so an explicit engine/pp_option
+            # still wins.
+            if "engine" not in kwargs and _paddle_static_engine_is_unreliable():
+                kwargs["engine"] = "onnxruntime"
             self._model = TextRecognition(**kwargs)
         return self._model
 

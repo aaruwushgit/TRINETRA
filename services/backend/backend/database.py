@@ -9,6 +9,11 @@ from backend.config import get_settings
 
 settings = get_settings()
 
+# How long a SQLite writer waits for the lock before giving up. Generous
+# because the alternative is a lost row, and every writer here holds the lock
+# for milliseconds.
+SQLITE_BUSY_TIMEOUT_MS = 30_000
+
 # Use robust connection pooling for handling 1000+ camera concurrent requests
 engine_kwargs = {}
 if "sqlite" in settings.DATABASE_URL:
@@ -24,6 +29,28 @@ else:
     engine_kwargs["pool_recycle"] = 1800
 
 engine = create_engine(settings.DATABASE_URL, **engine_kwargs)
+
+if "sqlite" in settings.DATABASE_URL:
+    from sqlalchemy import event
+
+    @event.listens_for(engine, "connect")
+    def _sqlite_busy_timeout(dbapi_connection, connection_record):
+        """Wait for a competing writer instead of failing the insert outright.
+
+        SQLite allows a single writer, and this deployment has several: the API,
+        the ANPR job runner and the live feeder all write concurrently. Without
+        a timeout the loser of any overlap raises 'database is locked'
+        immediately and the row is simply lost.
+
+        Set on the connection rather than per call site, because the individual
+        writers kept forgetting — the ingestion paths each set it by hand and
+        the feeder's ORM path did not, which is exactly where the dropped
+        inserts showed up.
+        """
+        cursor = dbapi_connection.cursor()
+        cursor.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
+        cursor.close()
+
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
