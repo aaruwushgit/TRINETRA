@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import maplibregl, { type Map as MLMap, type Marker } from "maplibre-gl";
-import type { Camera, HeatmapPoint, NextHop, RouteLeg } from "@/lib/api";
+import type { Camera, HeatmapPoint, InferredPlace, NextHop, RouteLeg } from "@/lib/api";
 import { TOMTOM_KEY } from "@/lib/api";
 
 /**
@@ -61,6 +61,9 @@ export interface Map3DProps {
   legs: RouteLeg[];
   /** Predicted next hops for the tracked vehicle. The top one blinks hardest. */
   predictions: NextHop[];
+  /** Inferred home/workplace for the tracked vehicle. Static, never blinks —
+   *  blinking is reserved for "about to happen", and these are conclusions. */
+  places: InferredPlace[];
   showTraffic: boolean;
   showCameras: boolean;
   showHeat: boolean;
@@ -75,6 +78,7 @@ export default function Map3D({
   liveCameraIds,
   legs,
   predictions,
+  places,
   showTraffic,
   showCameras,
   showHeat,
@@ -85,6 +89,7 @@ export default function Map3D({
   const holder = useRef<HTMLDivElement | null>(null);
   const map = useRef<MLMap | null>(null);
   const markers = useRef<Marker[]>([]);
+  const placeMarkers = useRef<Marker[]>([]);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
   // Bumped every time layers are (re)installed. `setStyle` destroys every
@@ -280,6 +285,8 @@ export default function Map3D({
     return () => {
       markers.current.forEach((mk) => mk.remove());
       markers.current = [];
+      placeMarkers.current.forEach((mk) => mk.remove());
+      placeMarkers.current = [];
       m.remove();
       map.current = null;
     };
@@ -465,6 +472,38 @@ export default function Map3D({
       markers.current.push(marker);
     });
   }, [ready, styleEpoch, predictions]);
+
+  // ── inferred home / workplace ─────────────────────────────────────────────
+  useEffect(() => {
+    const m = map.current;
+    if (!ready || !m) return;
+
+    placeMarkers.current.forEach((mk) => mk.remove());
+    placeMarkers.current = [];
+
+    for (const place of places) {
+      if (place.latitude == null || place.longitude == null) continue;
+      const el = document.createElement("div");
+      el.className = `place-marker ${place.label}`;
+      el.innerHTML = `<span class="place-glyph">${
+        place.label === "home" ? "\u2302" : "\u25A0"
+      }</span><span class="place-tag">${place.label.toUpperCase()}</span>`;
+
+      placeMarkers.current.push(
+        new maplibregl.Marker({ element: el, anchor: "center" })
+          .setLngLat([place.longitude, place.latitude])
+          .setPopup(
+            new maplibregl.Popup({ offset: 16, closeButton: false }).setHTML(
+              `<b>inferred ${place.label}</b><br/>${place.dominant_camera ?? ""}` +
+                `<br/>${place.sightings} sightings in this window` +
+                `<br/>${(place.confidence * 100).toFixed(0)}% of the window's sightings` +
+                `<br/><span style="color:#565f89">a neighbourhood junction, not an address</span>`,
+            ),
+          )
+          .addTo(m),
+      );
+    }
+  }, [ready, styleEpoch, places]);
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>

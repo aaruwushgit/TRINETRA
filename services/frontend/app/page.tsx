@@ -3,10 +3,11 @@
 import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useLiveFeed } from "@/lib/useLiveFeed";
-import { TOMTOM_KEY, pick, type NextHop, type RouteLeg } from "@/lib/api";
+import { TOMTOM_KEY, pick, type InferredPlace, type NextHop, type RouteLeg } from "@/lib/api";
 import TrajectoryPanel from "./components/TrajectoryPanel";
 import IngestionControls from "./components/IngestionControls";
 import { STYLES, type StyleKey } from "./components/Map3D";
+import PatternPanel from "./components/PatternPanel";
 
 // MapLibre needs WebGL and `window`, so the map never server-renders.
 const Map3D = dynamic(() => import("./components/Map3D"), {
@@ -35,6 +36,7 @@ export default function SurveillancePage() {
   // A plate chosen by clicking a row in the detection log. Lifted here so the
   // log and the trajectory panel — siblings, not parent and child — can talk.
   const [selectedPlate, setSelectedPlate] = useState<string | null>(null);
+  const [places, setPlaces] = useState<InferredPlace[]>([]);
   const [showTraffic, setShowTraffic] = useState(Boolean(TOMTOM_KEY));
   const [showCameras, setShowCameras] = useState(true);
   const [showHeat, setShowHeat] = useState(true);
@@ -156,6 +158,7 @@ export default function SurveillancePage() {
                 showBuildings={showBuildings}
                 pitch={pitch}
                 styleKey={styleKey}
+                places={places}
               />
             </div>
             <div className="legend">
@@ -212,7 +215,14 @@ export default function SurveillancePage() {
         </div>
 
         {/* ── right rail ──────────────────────────────────────────────────── */}
-        <div style={{ display: "grid", gridTemplateRows: "1fr 1fr", gap: 1, minHeight: 0 }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateRows: "1.1fr 1.25fr 0.75fr",
+            gap: 1,
+            minHeight: 0,
+          }}
+        >
           <TrajectoryPanel
             events={feed.events}
             selected={selectedPlate}
@@ -220,6 +230,7 @@ export default function SurveillancePage() {
             onLegs={setLegs}
             onPredictions={setPredictions}
           />
+          <PatternPanel plate={selectedPlate} onPlaces={setPlaces} />
           <AlertsPanel feed={feed} />
         </div>
       </div>

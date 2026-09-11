@@ -161,6 +161,57 @@ export interface PredictionResponse {
   predicted_destinations?: NextHop[];
 }
 
+/** An inferred significant location from /patterns/{plate}. */
+export interface InferredPlace {
+  label: string;
+  latitude: number;
+  longitude: number;
+  camera_ids: string[];
+  sightings: number;
+  confidence: number;
+  dominant_camera: string | null;
+}
+
+export interface AnomalyDay {
+  day: string;
+  score: number;
+  sightings: number;
+  distinct_cameras: number;
+  first_hour: number;
+  last_hour: number;
+  max_speed_kmh: number | null;
+  km_from_home: number | null;
+  reasons: string[];
+}
+
+export interface VehiclePattern {
+  plate: string;
+  status: "ok" | "insufficient";
+  sightings?: number;
+  required?: number;
+  detail?: string;
+  window_days?: number;
+  routine?: {
+    first_seen?: string;
+    last_seen?: string;
+    window_days?: number;
+    active_days?: number;
+    activity_rate?: number;
+    total_sightings?: number;
+    sightings_per_active_day?: number;
+    distinct_cameras?: number;
+    corridor_concentration?: number;
+    peak_hour?: number;
+    busiest_weekday?: number;
+    weekend_share?: number;
+    top_cameras?: { camera_id: string; sightings: number }[];
+  };
+  places?: { home: InferredPlace | null; work: InferredPlace | null };
+  commute_km?: number | null;
+  anomalies?: AnomalyDay[];
+  caveats?: string[];
+}
+
 /** Pick the first present key — the API is not perfectly consistent across routers. */
 export function pick<T>(obj: Record<string, unknown> | undefined, keys: string[], fallback: T): T {
   if (!obj) return fallback;
