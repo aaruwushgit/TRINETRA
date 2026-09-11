@@ -12,10 +12,15 @@ Two capabilities, in order of how much they depend on each other:
 
 **Home and workplace inference.** A vehicle's sightings are not uniformly
 distributed in space or time. Cluster them geographically, then ask which
-cluster dominates at night and which dominates during working hours on
-weekdays. The night cluster is where it sleeps; the weekday-daytime cluster is
-where it works. Neither label is in the data — they are inferred, which is the
-point.
+cluster dominates at night, and which dominates the weekday *commute* window
+while being far enough away to be somewhere else. The night cluster is where it
+sleeps; the other is where it goes. Neither label is in the data — they are
+inferred, which is the point.
+
+Note the commute window rather than the working day: a fixed camera network
+watches roads, so a vehicle parked at its workplace is invisible from 10:00 to
+16:00. Clustering that window found nothing for precisely the regular
+commuters it should have worked best on.
 
 **Anomaly detection against the vehicle's own baseline.** Once a vehicle has a
 routine, a departure from it is detectable: a night drive for a vehicle that
@@ -48,6 +53,11 @@ Honest limits
   an address. The API says so in its response.
 * Anomaly scores are relative to one vehicle. They are not comparable across
   vehicles, and the endpoints do not pretend they are.
+* IsolationForest's `contamination` is a quota, not a test — it will label a
+  fixed fraction of days regardless. The forest therefore only ranks; a day is
+  reported only if it also deviates by ANOMALY_MIN_Z on some concrete feature,
+  so a genuinely regular vehicle returns no anomalies rather than a
+  manufactured 6%.
 """
 from __future__ import annotations
 
@@ -64,10 +74,29 @@ from sqlalchemy.orm import Session
 MIN_SIGHTINGS_FOR_BASE = 12
 MIN_DAYS_FOR_ANOMALY = 14
 
-# Hour windows, in local clock terms. Deliberately not adjacent: the gaps are
-# commute time, when a vehicle is in neither place and would pollute both.
+# Hour windows, in local clock terms.
+#
+# NIGHT is when a vehicle is near where it sleeps. Its sightings then are on the
+# roads immediately around home, which is what makes the night cluster a home
+# proxy.
 NIGHT_HOURS = {22, 23, 0, 1, 2, 3, 4, 5}
-WORK_HOURS = {10, 11, 12, 13, 14, 15, 16}
+
+# DAY is deliberately the *commute* window and not 10:00-16:00, which is what
+# this originally used and which was wrong for this sensor.
+#
+# A fixed camera network watches roads. A vehicle parked at its workplace is
+# invisible for the whole working day — there is nothing to cluster between
+# 10:00 and 16:00 for a normal commuter, so inferring a workplace from that
+# window found nothing for exactly the vehicles it should have worked best on.
+# What IS observable is the end of the morning outbound trip and the start of
+# the evening return, so those are the hours used.
+DAY_HOURS = {7, 8, 9, 10, 11, 16, 17, 18, 19, 20}
+
+# How far a candidate workplace cluster must be from the inferred home before
+# it counts. Without this, the densest daytime cluster for most vehicles is the
+# junction outside their own house, and "work" comes back as a synonym for
+# "home".
+MIN_WORK_SEPARATION_KM = 1.5
 
 # DBSCAN neighbourhood, in kilometres. ~700 m groups sightings around one
 # junction cluster without merging adjacent neighbourhoods.
@@ -76,9 +105,17 @@ CLUSTER_MIN_SAMPLES = 3
 
 EARTH_RADIUS_KM = 6371.0
 
-# Fraction of a vehicle's days flagged as anomalous. IsolationForest needs a
-# contamination estimate; 6% keeps the output reviewable rather than alarming.
-ANOMALY_CONTAMINATION = 0.06
+# IsolationForest's `contamination` is a *quota*, not a test: at 0.06 it will
+# label ~6% of days anomalous whether or not anything unusual happened. On a
+# perfectly regular vehicle that produced 10 "anomalies" out of 40 identical
+# days, which is worse than useless — it manufactures suspicion.
+#
+# So the forest is used only to RANK days, with `contamination="auto"`, and a
+# day is reported only if it also shows a concrete univariate deviation of at
+# least ANOMALY_MIN_Z on some feature. A regular vehicle then yields none,
+# which is the correct answer.
+ANOMALY_CONTAMINATION = "auto"
+ANOMALY_MIN_Z = 2.0
 
 
 @dataclass
@@ -212,15 +249,31 @@ def _place_from(rows: list[dict[str, Any]], label: str) -> Place | None:
 
 
 def infer_places(sightings: list[dict[str, Any]]) -> dict[str, Place | None]:
-    """Infer home and workplace from when-and-where a vehicle is seen."""
+    """Infer home and workplace from when-and-where a vehicle is seen.
+
+    Home first, then workplace as the densest weekday-commute cluster that is
+    far enough from home to be somewhere else. Ordering matters: without the
+    home fix the "work" cluster collapses onto the home junction, because the
+    roads outside your house are where you are seen most often at any hour.
+    """
     night = [s for s in sightings if s["hour"] in NIGHT_HOURS]
-    # Weekdays only: a Saturday afternoon is leisure, and including it drags
-    # the "work" cluster towards wherever the vehicle shops.
-    work = [s for s in sightings if s["hour"] in WORK_HOURS and s["dow"] < 5]
-    return {
-        "home": _place_from(night, "home"),
-        "work": _place_from(work, "work"),
-    }
+    home = _place_from(night, "home")
+
+    # Weekdays only: a Saturday drive is leisure and drags the cluster towards
+    # wherever the vehicle shops.
+    daytime = [s for s in sightings if s["hour"] in DAY_HOURS and s["dow"] < 5]
+
+    if home is not None:
+        away = [
+            s
+            for s in daytime
+            if haversine_km(home.latitude, home.longitude, s["lat"], s["lon"])
+            >= MIN_WORK_SEPARATION_KM
+        ]
+    else:
+        away = daytime
+
+    return {"home": home, "work": _place_from(away, "work")}
 
 
 # ── routine + anomalies ──────────────────────────────────────────────────────
@@ -309,22 +362,32 @@ def find_anomalies(
         ("weekend", "unusual weekend/weekday pattern"),
     ]
 
-    flagged = [(s, i) for i, s in enumerate(scores) if s < 0]
-    flagged.sort(key=lambda pair: pair[0])
+    # Rank by the forest, then gate on a real deviation. The gate is what stops
+    # `contamination` from inventing a fixed quota of anomalies.
+    ranked = sorted(enumerate(scores), key=lambda pair: pair[1])
 
     out: list[AnomalyDay] = []
-    for score, i in flagged[:limit]:
+    for i, score in ranked:
+        if len(out) >= limit:
+            break
         reasons = []
+        strongest = 0.0
         for col, (_, template) in enumerate(names):
             if stds[col] <= 0:
                 continue
             z = (features[i][col] - means[col]) / stds[col]
-            if abs(z) >= 1.8:
+            strongest = max(strongest, abs(z))
+            if abs(z) >= ANOMALY_MIN_Z:
                 reasons.append(
                     template.format(dir="higher" if z > 0 else "lower")
                     if "{dir}" in template
                     else template
                 )
+        if strongest < ANOMALY_MIN_Z:
+            # Ranked low by the forest but not actually unlike anything. Because
+            # `ranked` is sorted worst-first, everything after this is tamer
+            # still.
+            break
         out.append(
             AnomalyDay(
                 day=days[i],
@@ -335,7 +398,7 @@ def find_anomalies(
                 last_hour=int(features[i][3]),
                 max_speed_kmh=round(float(features[i][5]), 1) or None,
                 km_from_home=round(float(features[i][6]), 2) if home else None,
-                reasons=reasons[:3] or ["combination of factors unlike this vehicle's norm"],
+                reasons=reasons[:3],
             )
         )
     return out
