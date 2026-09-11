@@ -64,6 +64,16 @@ class Settings(BaseSettings):
     # so live camera workers should override this to 1 to avoid adding lag.
     ANPR_BATCH: int = 8
 
+    # ── Deployment locale ─────────────────────────────────
+    # Minutes to add to a stored (naive UTC) timestamp to get local clock time.
+    # 330 = IST (+05:30), which is what the Delhi deployment runs on.
+    #
+    # This is not cosmetic. Behavioural analysis buckets sightings by
+    # hour-of-day ("is this vehicle out at night?"), and doing that on UTC in a
+    # +05:30 deployment shifts every window by five and a half hours — night
+    # becomes morning. See backend/services/pattern_service.py.
+    LOCAL_UTC_OFFSET_MINUTES: int = 330
+
     # ── Speed enforcement ─────────────────────────────────
     # Default city speed limit used by the real-time SPEED_VIOLATION alert
     # (checkpoint-pair speed: distance/time between two consecutive camera

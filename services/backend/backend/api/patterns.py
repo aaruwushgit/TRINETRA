@@ -67,29 +67,63 @@ def pattern_candidates(
     limit: int = Query(20, ge=1, le=100),
     min_sightings: int = Query(60, ge=12, le=5000),
     days: int = Query(365, ge=7, le=1095),
+    profile: str = Query(
+        "commuter",
+        pattern="^(commuter|roamer|any)$",
+        description="commuter = concentrated corridor; roamer = spread wide; any = by volume",
+    ),
     db: Session = Depends(get_db),
 ):
-    """Vehicles with enough history to profile, busiest first.
+    """Vehicles worth profiling, ranked by how much of a routine they have.
 
-    Exists so a client has somewhere to start: mining a pattern needs a vehicle
-    with a pattern, and picking a plate at random from 150k mostly-occasional
-    vehicles usually lands on one with nine sightings.
+    Exists because ranking by raw sighting count is actively misleading. The
+    highest-volume vehicles in this dataset are fleet and taxi profiles that
+    roam the whole network: they have thousands of sightings across a hundred
+    cameras and, correctly, no inferable home or workplace. Demonstrating the
+    pattern miner on one of those shows it working and concluding nothing.
+
+    So candidates are ranked by *corridor concentration* — the share of a
+    vehicle's sightings falling on its busiest few cameras. High concentration
+    is the signature of a commuter, which is the population the inference is
+    designed for. `profile=roamer` inverts it, which is the useful view for
+    "who is behaving unlike a commuter", and `any` restores volume ordering.
+
+    COST: this aggregates every sighting in the window (36M+ rows at a year),
+    so it takes tens of seconds and is a hash aggregate, not an index scan. It
+    is a one-off "find me a vehicle to look at" query and is deliberately not
+    called by the frontend on load — PatternPanel takes a plate it already
+    has. Do not put it behind a polling panel.
     """
+    pg = db.bind.dialect.name.startswith("postgres")
+    since_clause = (
+        "timestamp >= NOW() - (:days || ' days')::interval"
+        if pg
+        else "timestamp >= datetime('now', :days_sqlite)"
+    )
+
+    # concentration = sightings on the busiest camera / total sightings.
+    # A cheap proxy for the full top-5 share used by routine_summary, and it
+    # computes in one pass with no window function over 36M rows.
+    order = {
+        "commuter": "concentration DESC, n DESC",
+        "roamer": "concentration ASC, n DESC",
+        "any": "n DESC",
+    }[profile]
+
     rows = db.execute(
         text(
-            "SELECT plate, COUNT(*) AS n, COUNT(DISTINCT camera_id) AS cams "
-            "FROM vehicle_events "
-            "WHERE plate IS NOT NULL AND timestamp >= NOW() - (:days || ' days')::interval "
-            "GROUP BY plate HAVING COUNT(*) >= :min_sightings "
-            "ORDER BY n DESC LIMIT :limit"
-        )
-        if db.bind.dialect.name.startswith("postgres")
-        else text(
-            "SELECT plate, COUNT(*) AS n, COUNT(DISTINCT camera_id) AS cams "
-            "FROM vehicle_events "
-            "WHERE plate IS NOT NULL AND timestamp >= datetime('now', :days_sqlite) "
-            "GROUP BY plate HAVING COUNT(*) >= :min_sightings "
-            "ORDER BY n DESC LIMIT :limit"
+            "WITH per_cam AS ("
+            "  SELECT plate, camera_id, COUNT(*) AS c FROM vehicle_events "
+            f" WHERE plate IS NOT NULL AND {since_clause} "
+            "  GROUP BY plate, camera_id"
+            "), totals AS ("
+            "  SELECT plate, SUM(c) AS n, MAX(c) AS top_cam_count, "
+            "         COUNT(*) AS cams FROM per_cam GROUP BY plate "
+            "  HAVING SUM(c) >= :min_sightings"
+            ") "
+            "SELECT plate, n, cams, "
+            "       CAST(top_cam_count AS FLOAT) / n AS concentration "
+            f"FROM totals ORDER BY {order} LIMIT :limit"
         ),
         {
             "days": days,
@@ -101,7 +135,14 @@ def pattern_candidates(
 
     return {
         "window_days": days,
+        "ranked_by": profile,
         "candidates": [
-            {"plate": p, "sightings": n, "distinct_cameras": c} for p, n, c in rows
+            {
+                "plate": plate,
+                "sightings": int(n),
+                "distinct_cameras": int(cams),
+                "corridor_concentration": round(float(conc), 4),
+            }
+            for plate, n, cams, conc in rows
         ],
     }

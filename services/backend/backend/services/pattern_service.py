@@ -74,7 +74,14 @@ from sqlalchemy.orm import Session
 MIN_SIGHTINGS_FOR_BASE = 12
 MIN_DAYS_FOR_ANOMALY = 14
 
-# Hour windows, in local clock terms.
+# All hour windows below are in LOCAL clock terms, and the loader converts
+# stored timestamps into local time before bucketing. This matters more than it
+# looks: `vehicle_events.timestamp` is naive UTC, so bucketing it directly in a
+# +05:30 deployment puts "night" (22:00-06:00) at 03:30-11:30 local — the
+# morning rush. The inference still produced confident-looking output, because a
+# commuter oscillates between two cameras and any two disjoint windows will
+# separate them, but the home/work labels were arbitrary and could as easily
+# have been swapped.
 #
 # NIGHT is when a vehicle is near where it sleeps. Its sightings then are on the
 # roads immediately around home, which is what makes the night cluster a home
@@ -165,6 +172,9 @@ def _sightings(db: Session, plate: str, days: int) -> list[dict[str, Any]]:
     over what can be thousands of rows, and it runs on the
     (plate, timestamp, camera_id) index as a covering scan.
     """
+    from backend.config import get_settings
+
+    offset = timedelta(minutes=get_settings().LOCAL_UTC_OFFSET_MINUTES)
     since = datetime.utcnow() - timedelta(days=days)
     rows = db.execute(
         text(
@@ -180,13 +190,19 @@ def _sightings(db: Session, plate: str, days: int) -> list[dict[str, Any]]:
     out = []
     for camera_id, ts, lat, lon, speed in rows:
         when = ts if isinstance(ts, datetime) else datetime.fromisoformat(str(ts))
+        # Local clock, for every time-of-day decision below. `when` is kept as
+        # stored (UTC) so first_seen/last_seen stay consistent with the rest of
+        # the API, which reports UTC.
+        local = when + offset
         out.append(
             {
                 "camera_id": camera_id,
                 "when": when,
-                "hour": when.hour,
-                "dow": when.weekday(),          # 0=Mon
-                "day": when.date().isoformat(),
+                "hour": local.hour,
+                "dow": local.weekday(),         # 0=Mon, local
+                # Grouped on the LOCAL date, so one evening's activity is not
+                # split across two "days" by UTC midnight.
+                "day": local.date().isoformat(),
                 "lat": float(lat),
                 "lon": float(lon),
                 "speed": float(speed) if speed is not None else None,

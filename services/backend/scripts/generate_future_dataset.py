@@ -79,6 +79,20 @@ def load_generator():
     return module
 
 
+# Cached at module scope rather than bound as a local in main(), because
+# helpers below (recent_plates) need the generator's Dialect too and a local
+# would not be visible to them.
+_GENERATOR = None
+
+
+def generator():
+    """The Delhi generator module, loaded once."""
+    global _GENERATOR
+    if _GENERATOR is None:
+        _GENERATOR = load_generator()
+    return _GENERATOR
+
+
 FUTURE_COLUMNS = (
     "camera_id", "local_track_id", "timestamp", "plate", "plate_confidence",
     "latitude", "longitude", "direction", "vehicle_type", "vehicle_color",
@@ -103,7 +117,7 @@ def recent_plates(engine, limit: int, days: int = 7) -> list[tuple[str, str | No
     keeps its identity across the boundary.
     """
     since = (datetime.now(timezone.utc) - timedelta(days=days)).replace(tzinfo=None)
-    d = gen.Dialect(engine)
+    d = generator().Dialect(engine)
     sql = (
         "SELECT plate, MAX(global_vehicle_id) FROM vehicle_events "
         f"WHERE timestamp >= {d.ph} AND plate IS NOT NULL "
@@ -148,7 +162,7 @@ def main() -> None:
     if args.db_url:
         os.environ["DATABASE_URL"] = args.db_url
 
-    gen = load_generator()
+    gen = generator()
 
     from sqlalchemy import create_engine, text
 
