@@ -33,6 +33,13 @@ interface JobPlate {
   confidence?: number;
 }
 
+interface MediaFile {
+  name: string;
+  path: string;
+  size_bytes: number;
+  size_label: string;
+}
+
 interface JobPreview {
   seq?: number;
   frame?: number;
@@ -108,6 +115,8 @@ export default function SandboxPage() {
 function MediaJob({ kind }: { kind: "video" | "photo" }) {
   const [cameraId, setCameraId] = useState("SANDBOX-01");
   const [sourcePath, setSourcePath] = useState("");
+  const [bundled, setBundled] = useState<MediaFile[]>([]);
+  const [picked, setPicked] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [stride, setStride] = useState(3);
   const [batch, setBatch] = useState(8);
@@ -196,6 +205,31 @@ function MediaJob({ kind }: { kind: "video" | "photo" }) {
     }, 1500);
   };
 
+  // Footage already on the server, offered as click-to-run. Listed by the API
+  // from the same allowlist `source_path` is validated against, so what is
+  // offered and what is accepted cannot drift.
+  useEffect(() => {
+    let alive = true;
+    getJSONOr<{ videos: MediaFile[]; images: MediaFile[] }>("/jobs/media", {
+      videos: [],
+      images: [],
+    }).then((d) => {
+      if (!alive) return;
+      const files = kind === "video" ? d.videos : d.images;
+      setBundled(files);
+      // Default to the smallest clip: on a demo the useful default is whichever
+      // finishes quickest.
+      if (files.length && !picked && !sourcePath) {
+        setPicked(files[0].path);
+        setSourcePath(files[0].path);
+      }
+    });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind]);
+
   useEffect(() => () => socket.current?.close(), []);
 
   const progress = job?.progress;
@@ -211,16 +245,82 @@ function MediaJob({ kind }: { kind: "video" | "photo" }) {
             <input type="text" value={cameraId} onChange={(e) => setCameraId(e.target.value)} />
           </Field>
 
-          <Field label={`Upload ${kind}`}>
+          <Field label={`${kind === "video" ? "Footage" : "Images"} on this machine — click to run`}>
+            {bundled.length === 0 ? (
+              <div className="muted" style={{ fontSize: 10.5 }}>
+                none found in the allowlisted directories
+              </div>
+            ) : (
+              <div
+                style={{
+                  maxHeight: 168,
+                  overflowY: "auto",
+                  border: "1px solid var(--panel-border)",
+                  background: "var(--bg)",
+                }}
+              >
+                {bundled.map((f) => {
+                  const on = picked === f.path;
+                  return (
+                    <button
+                      key={f.path}
+                      type="button"
+                      onClick={() => {
+                        setPicked(f.path);
+                        setSourcePath(f.path);
+                        setFile(null); // a picked file and an upload are exclusive
+                      }}
+                      style={{
+                        display: "flex",
+                        gap: 8,
+                        width: "100%",
+                        textAlign: "left",
+                        background: on ? "rgba(158,206,106,0.10)" : "transparent",
+                        border: "none",
+                        borderLeft: `2px solid ${on ? "var(--accent-green)" : "transparent"}`,
+                        borderBottom: "1px solid rgba(30,36,51,0.5)",
+                        color: on ? "var(--accent-green)" : "var(--text)",
+                        font: "inherit",
+                        fontSize: 10.5,
+                        padding: "4px 7px",
+                        cursor: "pointer",
+                      }}
+                      title={f.path}
+                    >
+                      <span className="muted" style={{ width: 46, flex: "0 0 46px" }}>
+                        {f.size_label}
+                      </span>
+                      <span
+                        style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                      >
+                        {f.name}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <div className="muted" style={{ fontSize: 10, marginTop: 3 }}>
+              Runs in place — nothing is re-uploaded. Smallest first.
+            </div>
+          </Field>
+
+          <Field label={`…or upload a new ${kind}`}>
             <input
               type="file"
               accept={kind === "video" ? "video/*" : "image/*"}
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              onChange={(e) => {
+                setFile(e.target.files?.[0] ?? null);
+                if (e.target.files?.[0]) {
+                  setPicked(null);
+                  setSourcePath("");
+                }
+              }}
               style={{ fontSize: 11, color: "var(--text-muted)" }}
             />
           </Field>
 
-          <Field label="…or a path already on the server">
+          <Field label="…or an explicit server path">
             <input
               type="text"
               value={sourcePath}
@@ -400,6 +500,11 @@ function FramePreview({ job }: { job: JobState | null }) {
   const [src, setSrc] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   const running = Boolean(job && !["DONE", "FAILED", "CANCELLED"].includes(job.state));
+  // QUEUED is a real state with a real cause — one ANPR job runs at a time
+  // because the detector and OCR reader are shared, non-thread-safe
+  // singletons. Saying "waiting for the first encoded frame" during a queue
+  // wait describes the symptom and hides the reason, which reads as a bug.
+  const queued = job?.state === "QUEUED";
 
   useEffect(() => {
     if (!running) return;
@@ -438,19 +543,32 @@ function FramePreview({ job }: { job: JobState | null }) {
           padding: 6,
         }}
       >
-        {src && job?.preview?.available ? (
+        {queued ? (
+          <div className="empty" style={{ textAlign: "center" }}>
+            <span className="amber">Queued.</span>
+            <br />
+            Another job is using the detector — one runs at a time, because the
+            detector and OCR reader are shared singletons and neither is
+            thread-safe. This starts automatically when the one ahead finishes.
+          </div>
+        ) : src && job?.preview?.available ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={src}
             alt="frame being processed"
             style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
-            onError={() => setSrc(null)}
+            // Deliberately does NOT clear `src`. A transient 204 (the next
+            // frame is not encoded yet) or a dropped request would otherwise
+            // blank the panel and fall through to the placeholder, which looked
+            // like the preview had died. Holding the last good frame until a
+            // newer one decodes is the honest rendering of "still working".
+            onError={() => {}}
           />
         ) : (
           <div className="empty" style={{ textAlign: "center" }}>
             {running
-              ? "waiting for the first encoded frame…"
-              : "Run a video job to watch the detector work frame by frame."}
+              ? "Starting up — the first frame appears once the detector has loaded."
+              : "Pick a clip and run it to watch the detector work frame by frame."}
             <br />
             <span style={{ fontSize: 10, opacity: 0.75 }}>
               Green boxes are plate detections with confidence. Amber text is the

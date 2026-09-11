@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   getJSON,
   getJSONOr,
@@ -29,7 +29,23 @@ import {
  * own, so the panel arrives populated and the demo starts from something real.
  */
 
-const HOURS = 744; // the dataset is a month wide; the endpoint defaults to 24h
+/**
+ * How far back to reconstruct, in hours, per named window.
+ *
+ * This is a cost control as much as a UI affordance. On 36.9M rows a cold
+ * `/routing/trajectory` over a year measured 19.9s, because it resolves an
+ * OSRM leg for every consecutive pair of sightings and a year of a commuter is
+ * hundreds of hops. The live window answers in milliseconds off the same
+ * index. Asking for a year by default made the panel look broken.
+ */
+export const WINDOWS = {
+  live: { label: "Live · 6h", hours: 6, limit: 40 },
+  day: { label: "24h", hours: 24, limit: 80 },
+  week: { label: "7d", hours: 168, limit: 150 },
+  year: { label: "Full year", hours: 8760, limit: 300 },
+} as const;
+
+export type WindowKey = keyof typeof WINDOWS;
 
 export interface TrajectoryPanelProps {
   /** Newest sightings, used to pick a plate to show unprompted. */
@@ -57,50 +73,74 @@ export default function TrajectoryPanel({
   const [detail, setDetail] = useState("");
   const [autoPicked, setAutoPicked] = useState(false);
   const [hops, setHops] = useState<NextHop[]>([]);
+  const [windowKey, setWindowKey] = useState<WindowKey>("day");
+  // Monotonic request id; see the generation guard in `load`.
+  const generation = useRef(0);
   const [lastSeen, setLastSeen] = useState<PredictionResponse["last_sighting"] | null>(null);
 
   const load = useCallback(
-    async (target: string) => {
+    async (target: string, windowKey: WindowKey) => {
       const query = target.trim().toUpperCase();
       if (!query) return;
+
+      // Generation guard. The auto-pick and the external-selection effect can
+      // both fire for the same plate, and a slow in-flight request must never
+      // be able to overwrite a newer one's results — nor, on failure, wipe
+      // them. Without this a duplicate request that errored cleared the
+      // predictions the successful one had just set, which is exactly why the
+      // next-hop markers intermittently never appeared.
+      const gen = ++generation.current;
+      const stale = () => gen !== generation.current;
+
+      const win = WINDOWS[windowKey];
       setStatus("loading");
       setDetail("");
       setActive(query);
       try {
         const data = await getJSON<TrajectoryResponse>(
-          `/routing/trajectory/${encodeURIComponent(query)}?limit=200&hours=${HOURS}`,
+          `/routing/trajectory/${encodeURIComponent(query)}` +
+            `?limit=${win.limit}&hours=${win.hours}`,
         );
+        if (stale()) return;
         const found = (data.legs || data.segments || []) as RouteLeg[];
         setLegs(found);
         onLegs(found);
         setRoadKm(data.total_road_km ?? data.total_distance_km ?? null);
         if (found.length === 0) {
           setStatus("empty");
-          setDetail(`No multi-camera hops recorded for ${query} in the last 31 days.`);
+          setDetail(`No multi-camera hops for ${query} in the last ${win.label}.`);
         } else {
           setStatus("ok");
         }
 
-        // Next-hop prediction is a separate endpoint and a separate failure
-        // mode: a vehicle can have a perfectly good history and still be
-        // unpredictable (one sighting, or a camera with no observed
-        // transitions). So it degrades on its own without touching the
-        // trajectory that already rendered.
+      } catch (err) {
+        if (stale()) return;
+        setStatus("error");
+        setLegs([]);
+        onLegs([]);
+        setDetail(err instanceof Error ? err.message : "routing unavailable");
+      }
+
+      // Prediction is fetched OUTSIDE the trajectory try/catch, which the old
+      // comment claimed but the code did not do — it sat inside the same block,
+      // so a trajectory failure skipped it and the catch then cleared any
+      // predictions already on screen. They are genuinely independent: a
+      // vehicle can have a fine history and still be unpredictable (one
+      // sighting, or a last camera with no observed onward transitions).
+      try {
         const forecast = await getJSONOr<PredictionResponse>(
           `/vehicles/${encodeURIComponent(query)}/predict-next-location`,
           {},
         );
+        if (stale()) return;
         const destinations = forecast.predicted_destinations ?? [];
         setHops(destinations);
         setLastSeen(forecast.last_sighting ?? null);
         onPredictions(destinations);
-      } catch (err) {
-        setStatus("error");
-        setLegs([]);
-        onLegs([]);
+      } catch {
+        if (stale()) return;
         setHops([]);
         onPredictions([]);
-        setDetail(err instanceof Error ? err.message : "routing unavailable");
       }
     },
     [onLegs, onPredictions],
@@ -118,8 +158,8 @@ export default function TrajectoryPanel({
     // without it the pattern panel sat on its empty state even though a
     // trajectory was rendered right above it.
     onSelect(candidate);
-    load(candidate);
-  }, [events, autoPicked, selected, load, onSelect]);
+    load(candidate, windowKey);
+  }, [events, autoPicked, selected, load, onSelect, windowKey]);
 
   // Clicking a sighting in the detection log lands here. Guarded on `active`
   // so re-renders of the parent do not refetch the plate already displayed.
@@ -127,8 +167,8 @@ export default function TrajectoryPanel({
     if (!selected || selected === active) return;
     setAutoPicked(true);
     setPlate(selected);
-    load(selected);
-  }, [selected, active, load]);
+    load(selected, windowKey);
+  }, [selected, active, load, windowKey]);
 
   const realHops = legs.filter(
     (l) => l.is_real_road !== false && l.source !== "fallback_straight",
@@ -152,7 +192,7 @@ export default function TrajectoryPanel({
           onSubmit={(e) => {
             e.preventDefault();
             if (plate.trim()) onSelect(plate.trim().toUpperCase());
-            load(plate);
+            load(plate, windowKey);
           }}
           style={{ display: "flex", gap: 6 }}
         >

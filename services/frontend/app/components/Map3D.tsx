@@ -227,13 +227,29 @@ export default function Map3D({
 
       // ── trajectory: real road vs straight-line fallback ─────────────────
       m.addSource(SRC_TRAJ, { type: "geojson", data: empty() });
+      // Colour by recency, not one flat colour for the whole trail.
+      //
+      // A trajectory is a sequence in time, and drawing every leg identically
+      // throws that away — you cannot tell where the vehicle started from
+      // where it is now. `age` is 0 for the newest leg and 1 for the oldest,
+      // computed on the client, so the most recent movement is bright cyan and
+      // older history fades back through purple to dim. Direction of travel
+      // becomes readable at a glance without arrows.
       m.addLayer({
         id: "traj-glow",
         type: "line",
         source: SRC_TRAJ,
         filter: ["==", ["get", "real"], true],
         layout: { "line-cap": "round", "line-join": "round" },
-        paint: { "line-color": "#7dcfff", "line-width": 9, "line-opacity": 0.16, "line-blur": 4 },
+        paint: {
+          "line-color": [
+            "interpolate", ["linear"], ["get", "age"],
+            0, "#7dcfff", 0.5, "#bb9af7", 1, "#3b4261",
+          ],
+          "line-width": 9,
+          "line-opacity": ["interpolate", ["linear"], ["get", "age"], 0, 0.22, 1, 0.05],
+          "line-blur": 4,
+        },
       });
       m.addLayer({
         id: "traj-road",
@@ -241,7 +257,24 @@ export default function Map3D({
         source: SRC_TRAJ,
         filter: ["==", ["get", "real"], true],
         layout: { "line-cap": "round", "line-join": "round" },
-        paint: { "line-color": "#7dcfff", "line-width": 3.2 },
+        paint: {
+          "line-color": [
+            "interpolate", ["linear"], ["get", "age"],
+            0, "#7dcfff", 0.5, "#bb9af7", 1, "#565f89",
+          ],
+          "line-width": ["interpolate", ["linear"], ["get", "age"], 0, 4.0, 1, 2.0],
+          "line-opacity": ["interpolate", ["linear"], ["get", "age"], 0, 1.0, 1, 0.55],
+        },
+      });
+      // A wide, invisible line purely as a hover target: a 4px line is hard to
+      // hit with a cursor, and widening the visible one to compensate would
+      // misrepresent the road.
+      m.addLayer({
+        id: "traj-hit",
+        type: "line",
+        source: SRC_TRAJ,
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": "#000000", "line-opacity": 0, "line-width": 18 },
       });
       m.addLayer({
         id: "traj-fallback",
@@ -287,6 +320,64 @@ export default function Map3D({
           "circle-stroke-width": 1.6,
           "circle-stroke-color": ["case", ["get", "live"], "#eaffd0", "#cfefff"],
         },
+      });
+
+      // ── leg hover ────────────────────────────────────────────────────────
+      const legPopup = new maplibregl.Popup({
+        closeButton: false,
+        offset: 12,
+        maxWidth: "320px",
+      });
+      m.on("mousemove", "traj-hit", (e) => {
+        const f = e.features?.[0];
+        if (!f) return;
+        m.getCanvas().style.cursor = "pointer";
+        const p = f.properties as Record<string, string | number | boolean>;
+        const real = p.real === true || p.real === "true";
+        const num = (v: unknown, dp = 2) =>
+          v === null || v === undefined || v === "" ? null : Number(v).toFixed(dp);
+
+        const roadKm = num(p.road_km);
+        const straightKm = num(p.straight_km);
+        const roadSpeed = num(p.road_speed, 1);
+        const straightSpeed = num(p.straight_speed, 1);
+
+        legPopup
+          .setLngLat(e.lngLat)
+          .setHTML(
+            `<div style="font-size:11px;line-height:1.5">
+              <b>Leg ${Number(p.index) + 1} of ${p.total}</b>
+              ${p.is_newest ? ' <span style="color:#7dcfff">· most recent</span>' : ""}
+              <br/><span style="color:#7dcfff">${p.from_camera ?? "?"}</span>
+              <span style="color:#565f89"> → </span>
+              <span style="color:#7dcfff">${p.to_camera ?? "?"}</span>
+              ${p.departed ? `<br/><span style="color:#565f89">departed</span> ${p.departed}` : ""}
+              ${p.arrived ? `<br/><span style="color:#565f89">arrived</span> ${p.arrived}` : ""}
+              ${p.elapsed_min ? `<br/><span style="color:#565f89">elapsed</span> ${num(p.elapsed_min, 1)} min` : ""}
+              ${roadKm ? `<br/><span style="color:#565f89">road distance</span> ${roadKm} km` : ""}
+              ${
+                roadSpeed
+                  ? `<br/><span style="color:#565f89">road speed</span> <b>${roadSpeed} km/h</b>`
+                  : ""
+              }
+              ${
+                straightSpeed && straightKm
+                  ? `<br/><span style="color:#565f89">crow-flies</span> ${straightKm} km at ${straightSpeed} km/h
+                     <br/><span style="color:#565f89;font-size:10px">straight-line understates speed — that is why both are shown</span>`
+                  : ""
+              }
+              ${
+                real
+                  ? ""
+                  : '<br/><span style="color:#e0af68"><b>straight-line fallback</b> — OSRM had no route, this is not a real road path</span>'
+              }
+            </div>`,
+          )
+          .addTo(m);
+      });
+      m.on("mouseleave", "traj-hit", () => {
+        m.getCanvas().style.cursor = "";
+        legPopup.remove();
       });
 
       const popup = new maplibregl.Popup({ closeButton: false, offset: 10 });
@@ -426,10 +517,39 @@ export default function Map3D({
     const src = m.getSource(SRC_TRAJ) as maplibregl.GeoJSONSource | undefined;
     if (!src) return;
 
+    const clock = (iso?: string) => {
+      if (!iso) return "";
+      const d = new Date(iso.endsWith("Z") || iso.includes("+") ? iso : `${iso}Z`);
+      return Number.isNaN(d.getTime())
+        ? ""
+        : d.toLocaleString("en-GB", {
+            day: "2-digit",
+            month: "short",
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+    };
+
     const features = legs
-      .map((leg) => {
+      .map((leg, i) => {
         const pts = (leg.geometry || leg.points || []) as [number, number][];
         if (pts.length < 2) return null;
+
+        // The API returns legs oldest-first, so `age` runs 0 at the newest leg
+        // to 1 at the oldest. Guard the single-leg case: dividing by zero
+        // would make every colour NaN and the line vanish.
+        const span = Math.max(1, legs.length - 1);
+        const age = (legs.length - 1 - i) / span;
+
+        const roadM = leg.road_distance_m ?? 0;
+        const straightM = leg.straight_line_m ?? 0;
+        const elapsed =
+          leg.from_timestamp && leg.to_timestamp
+            ? (new Date(`${leg.to_timestamp}Z`).getTime() -
+                new Date(`${leg.from_timestamp}Z`).getTime()) /
+              60000
+            : null;
+
         return {
           type: "Feature" as const,
           // The API returns [lat, lng]; GeoJSON wants [lng, lat].
@@ -439,6 +559,19 @@ export default function Map3D({
           },
           properties: {
             real: leg.is_real_road !== false && leg.source !== "fallback_straight",
+            age,
+            index: i,
+            total: legs.length,
+            is_newest: i === legs.length - 1,
+            from_camera: leg.from_camera_id ?? "",
+            to_camera: leg.to_camera_id ?? "",
+            road_km: roadM / 1000,
+            straight_km: straightM / 1000,
+            road_speed: leg.road_speed_kmh ?? "",
+            straight_speed: leg.straight_speed_kmh ?? "",
+            departed: clock(leg.from_timestamp),
+            arrived: clock(leg.to_timestamp),
+            elapsed_min: elapsed ?? "",
           },
         };
       })

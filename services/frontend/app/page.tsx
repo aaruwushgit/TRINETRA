@@ -8,6 +8,7 @@ import TrajectoryPanel from "./components/TrajectoryPanel";
 import IngestionControls from "./components/IngestionControls";
 import { STYLES, type StyleKey } from "./components/Map3D";
 import PatternPanel from "./components/PatternPanel";
+import HistoryPanel from "./components/HistoryPanel";
 
 // MapLibre needs WebGL and `window`, so the map never server-renders.
 const Map3D = dynamic(() => import("./components/Map3D"), {
@@ -69,28 +70,44 @@ export default function SurveillancePage() {
 
   return (
     <>
-      <div className="kpis">
-        <Kpi label="Cameras online" value={withCoords.length} tone="cyan" />
-        <Kpi
-          label="Active now"
-          value={feed.liveCameraIds.size}
-          tone="green"
-          pulse={feed.liveCameraIds.size > 0}
-        />
-        <Kpi label="Sightings / min" value={feed.eventsPerMin} tone="purple" />
-        <Kpi label="Total sightings" value={fmt(totalEvents)} tone="cyan" />
-        <Kpi label="Last hour" value={fmt(lastHour)} tone="purple" />
-        <Kpi label="Unique vehicles" value={fmt(uniqueVehicles)} tone="cyan" />
-        <Kpi
-          label="Active alerts"
-          value={feed.alerts.length}
-          tone={feed.alerts.length ? "red" : "green"}
-        />
-        <Kpi
-          label="Avg speed"
-          value={avgSpeed ? `${Number(avgSpeed).toFixed(0)} km/h` : "—"}
-          tone="amber"
-        />
+      {/* Two bands, not one row. The old strip mixed "60 sightings/min" with
+          "36.6M total" as if they were the same kind of fact; they are a live
+          rate and a year-long total, and reading them together is misleading. */}
+      <div style={{ display: "flex", flex: "0 0 auto", background: "var(--panel-border)", gap: 1 }}>
+        <div style={{ flex: "0 0 auto", display: "flex", alignItems: "center", padding: "0 10px", background: "var(--panel)" }}>
+          <span className="dot live" style={{ marginRight: 6 }} />
+          <span className="kpi-label" style={{ color: "var(--accent-green)" }}>LIVE</span>
+        </div>
+        <div className="kpis" style={{ flex: 1, borderBottom: "none" }}>
+          <Kpi label="Cameras online" value={withCoords.length} tone="cyan" />
+          <Kpi
+            label="Firing now"
+            value={feed.liveCameraIds.size}
+            tone="green"
+            pulse={feed.liveCameraIds.size > 0}
+          />
+          <Kpi label="Sightings / min" value={feed.eventsPerMin} tone="purple" />
+          <Kpi label="Last hour" value={fmt(lastHour)} tone="green" />
+          <Kpi
+            label="Active alerts"
+            value={feed.alerts.length}
+            tone={feed.alerts.length ? "red" : "green"}
+          />
+        </div>
+
+        <div style={{ flex: "0 0 auto", display: "flex", alignItems: "center", padding: "0 10px", background: "var(--panel)" }}>
+          <span className="cyan" style={{ marginRight: 6 }}>▤</span>
+          <span className="kpi-label" style={{ color: "var(--accent-cyan)" }}>ARCHIVE · 365d</span>
+        </div>
+        <div className="kpis" style={{ flex: 1, borderBottom: "none" }}>
+          <Kpi label="Total sightings" value={fmt(totalEvents)} tone="cyan" />
+          <Kpi label="Unique vehicles" value={fmt(uniqueVehicles)} tone="cyan" />
+          <Kpi
+            label="Avg speed"
+            value={avgSpeed ? `${Number(avgSpeed).toFixed(0)} km/h` : "—"}
+            tone="amber"
+          />
+        </div>
       </div>
 
       <div
@@ -163,9 +180,13 @@ export default function SurveillancePage() {
             </div>
             <div className="legend">
               <span>
-                <span className="swatch" style={{ background: "#7dcfff" }} />
-                <b>Road-snapped path</b>
+                <span
+                  className="swatch"
+                  style={{ background: "linear-gradient(90deg,#565f89,#bb9af7,#7dcfff)" }}
+                />
+                <b>Trip path</b> — dim = oldest, cyan = most recent
               </span>
+              <span className="muted">hover a leg for times, distance &amp; both speeds</span>
               <span>
                 <span
                   className="swatch"
@@ -207,11 +228,16 @@ export default function SurveillancePage() {
             </div>
           </div>
 
-          <DetectionLog
-            feed={feed}
-            selected={selectedPlate}
-            onSelect={setSelectedPlate}
-          />
+          {/* Live and archive side by side, so which half of the product you
+              are looking at is never ambiguous. */}
+          <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 1, minHeight: 0 }}>
+            <DetectionLog
+              feed={feed}
+              selected={selectedPlate}
+              onSelect={setSelectedPlate}
+            />
+            <HistoryPanel summary={feed.summary} />
+          </div>
         </div>
 
         {/* ── right rail ──────────────────────────────────────────────────── */}

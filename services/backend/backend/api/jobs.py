@@ -582,6 +582,65 @@ def _reference_warnings(parsed) -> list[str]:
 # ── inspection ───────────────────────────────────────────────────────────────
 # Declared before /{job_id} so "system" cannot be captured as a job id.
 
+@_rest.get("/media")
+def list_bundled_media():
+    """Video and image files already on the server, ready to run.
+
+    The old static sandbox hardcoded eight filenames plus an absolute archive
+    path in JavaScript, which meant the list silently went stale whenever the
+    footage changed and could not work on another machine. This scans the same
+    allowlist `source_path` already validates against
+    (ALLOWED_SOURCE_ROOTS), so what is offered and what is accepted cannot
+    drift apart, and there is no second copy of the path to maintain.
+
+    Returns the absolute path because that is what POST /jobs/video takes as
+    `source_path` — the point of this endpoint is click-to-run without
+    re-uploading footage that is already here.
+    """
+    videos: list[dict[str, object]] = []
+    images: list[dict[str, object]] = []
+
+    for root in ALLOWED_SOURCE_ROOTS:
+        try:
+            if not root.exists() or not root.is_dir():
+                continue
+        except OSError:
+            continue
+        for entry in sorted(root.iterdir()):
+            try:
+                if not entry.is_file():
+                    continue
+                suffix = entry.suffix.lower()
+                if suffix not in VIDEO_EXTENSIONS and suffix not in IMAGE_EXTENSIONS:
+                    continue
+                size = entry.stat().st_size
+            except OSError:
+                continue
+
+            item = {
+                "name": entry.name,
+                "path": str(entry),
+                "size_bytes": size,
+                "size_label": _human_size(size),
+                "root": str(root),
+            }
+            (videos if suffix in VIDEO_EXTENSIONS else images).append(item)
+
+    # Smallest first: on a demo the useful default is whichever clip finishes
+    # quickest, not whichever sorts first alphabetically.
+    videos.sort(key=lambda i: i["size_bytes"])
+    images.sort(key=lambda i: i["size_bytes"])
+    return {"videos": videos, "images": images}
+
+
+def _human_size(n: int) -> str:
+    if n >= 1 << 30:
+        return f"{n / (1 << 30):.1f} GB"
+    if n >= 1 << 20:
+        return f"{n / (1 << 20):.0f} MB"
+    return f"{max(1, n // 1024)} KB"
+
+
 @_rest.get("/system/compute")
 def system_compute():
     """Device info + live process usage, for the dashboard's compute panel."""
