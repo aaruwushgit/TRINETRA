@@ -259,7 +259,10 @@ rollups `road_usage` / `camera_hourly` / `camera_totals` / `dataset_kpi`.
 
 | Doc | What's in it |
 |---|---|
-| [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md) | Full architecture, priority map, how every capability actually works |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | **Start here.** Complete architecture, component map, data model, end-to-end dataflows, known weak points |
+| [docs/RETRAINING_HIGH_SPEED.md](docs/RETRAINING_HIGH_SPEED.md) | Step-by-step: retraining the YOLO detector and the OCR layer for high-speed vehicles |
+| [docs/DEPENDENCY_AUDIT.md](docs/DEPENDENCY_AUDIT.md) | Bloat/dependency audit — what is unused, what can be replaced, in what order |
+| [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md) | Earlier architecture notes and priority map (superseded in places by ARCHITECTURE.md) |
 | [docs/WorkFlow.md](docs/WorkFlow.md) | Team workflow / process |
 | [docs/ALPR_Integration_Guide.md](docs/ALPR_Integration_Guide.md) | How the ANPR service plugs into the backend |
 | [docs/Problem Statement Details.md](docs/Problem%20Statement%20Details.md) | Original problem statement |
