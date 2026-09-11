@@ -76,15 +76,22 @@ def analytics_summary(db: Session = Depends(get_db)):
     # Kept live: an indexed range scan over the tail of `timestamp`, which is
     # milliseconds, and "last hour" is the one figure on the header that has to
     # actually move while someone is watching.
+    #
+    # Bounded at BOTH ends. `vehicle_events` legitimately contains
+    # future-dated rows: the simulation clock promotes staged `future_events`
+    # using their own sim-time timestamps, and running the clock fast pushes
+    # those days ahead of wall time. A one-sided `>= now() - 1h` then counts
+    # every future row as "the last hour" — observed reporting 326,800 when the
+    # real figure was 75,752. An hour has an end as well as a beginning.
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    window = (VehicleEvent.timestamp >= last_hour, VehicleEvent.timestamp <= now)
+
     last_hour_count = (
-        db.query(func.count(VehicleEvent.event_id))
-        .filter(VehicleEvent.timestamp >= last_hour)
-        .scalar()
-        or 0
+        db.query(func.count(VehicleEvent.event_id)).filter(*window).scalar() or 0
     )
     avg_speed = (
         db.query(func.avg(VehicleEvent.speed))
-        .filter(VehicleEvent.speed.isnot(None), VehicleEvent.timestamp >= last_hour)
+        .filter(VehicleEvent.speed.isnot(None), *window)
         .scalar()
     ) or lifetime_avg_speed
 
