@@ -18,6 +18,13 @@ services/backend/dev.db*
 services/backend/sandbox_dbs/
 services/backend/uploads/
 services/backend/job_outputs/
+services/backend/training/
+services/backend/deployments/
 services/alpr/results/
 services/alpr/notebooks/
 services/alpr/data/
+
+# Vendored, not wired into the running platform (see docs/ARCHITECTURE.md §3
+# and docs/DEPENDENCY_AUDIT.md §1.1/§1.3) — never needed in the build context.
+services/vehicle-mtmc/
+services/traffic-detection-yolo/

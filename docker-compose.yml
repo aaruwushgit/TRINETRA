@@ -75,6 +75,15 @@ services:
       # (ALLOWED_SOURCE_ROOTS), so the archive is mounted at that same path
       # inside the container and both keep resolving unchanged.
       - ./archive:/Users/aarushsharma/Documents/SIH/archive:ro
+      # PaddleX/PaddleOCR's downloaded model weights. Without this volume the
+      # container has nowhere to keep them: the writable layer is wiped on
+      # every `docker compose up --build`/recreate, so PP-OCR gets
+      # re-downloaded (and the OCR client re-pings the model hoster for a
+      # connectivity check first) on every restart — this is what made the
+      # sandbox feel newly slow after a rebuild. One shared named volume
+      # across backend/live_feeder/kafka_consumer means only the *first*
+      # container to touch OCR pays the download.
+      - paddlex_models:/root/.paddlex
     environment:
       DATABASE_URL: sqlite:////data/dev.db
       REDIS_URL: redis://redis:6379/0
@@ -84,6 +93,10 @@ services:
       ANPR_WEIGHTS_PATH: /app/alpr/best.pt
       ANPR_REPO_PATH: /app/alpr
       ANPR_DEVICE: cpu
+      # Skip PaddleX's per-process "checking connectivity to the model
+      # hosters" probe. It re-runs even when the weights are already cached
+      # locally, and it is a real network round trip on every cold start.
+      PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
     depends_on:
       postgres:
         condition: service_healthy
@@ -102,11 +115,13 @@ services:
     command: python scripts/live_event_feeder.py --events-per-sec 20 --diurnal-rate
     volumes:
       - ./services/backend:/data
+      - paddlex_models:/root/.paddlex
     environment:
       DATABASE_URL: sqlite:////data/dev.db
       REDIS_URL: redis://redis:6379/0
       USE_REDIS: "true"
       USE_KAFKA: "false"
+      PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
     depends_on:
       - backend
     restart: unless-stopped
@@ -119,6 +134,7 @@ services:
     command: python scripts/run_kafka_consumer.py
     volumes:
       - ./services/backend:/data
+      - paddlex_models:/root/.paddlex
     environment:
       DATABASE_URL: sqlite:////data/dev.db
       REDIS_URL: redis://redis:6379/0
@@ -128,8 +144,10 @@ services:
       ANPR_WEIGHTS_PATH: /app/alpr/best.pt
       ANPR_REPO_PATH: /app/alpr
       ANPR_DEVICE: cpu
+      PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
     depends_on:
       - backend
 
 volumes:
   pgdata:
+  paddlex_models:

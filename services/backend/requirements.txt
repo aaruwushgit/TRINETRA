@@ -12,21 +12,17 @@ ultralytics>=8.0.0
 # ── Production & Messaging ──────────────────────────────────────
 redis>=5.0.0
 kafka-python-ng>=2.2.0
-alembic>=1.13.0
-psycopg2-binary>=2.9.9
-geoalchemy2>=0.14.0
 pyjwt>=2.8.0
-passlib[bcrypt]>=1.7.4
 bcrypt>=4.0.0
 
-# ── ANPR (install from local repo) ─────────────────────────────
-# Run: pip install -e ../Automatic-License-Plate-Recognition
-# OR uncomment this if you copy the repo inside this project:
-# -e ./vendor/Automatic-License-Plate-Recognition
-
+# ── ANPR ─────────────────────────────────────────────────────────
+# Installed separately in the Dockerfile from the vendored services/alpr
+# checkout (`pip install services/alpr[ocr]`), so `import alpr` resolves to
+# real detection/OCR code rather than a stub.
 
 # ── Database ───────────────────────────────────────────────────
-# SQLite is used for dev (no install needed).
-# For production PostgreSQL:
-#   pip install psycopg2-binary
-#   Set DATABASE_URL=postgresql://user:pass@host/dbname in .env
+# SQLite only, for now (DATABASE_URL=sqlite:///./dev.db). Postgres is
+# provisioned in docker-compose.yml but nothing currently connects to it —
+# alembic, psycopg2-binary and geoalchemy2 were removed because none of them
+# are imported by any code path. Re-add all three together if/when the
+# backend actually switches DATABASE_URL to postgresql://...
