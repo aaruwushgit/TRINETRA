@@ -113,8 +113,13 @@ export default function TrajectoryPanel({
     if (!candidate) return;
     setAutoPicked(true);
     setPlate(candidate);
+    // Publish the auto-pick too, not just the local input. PatternPanel is a
+    // sibling and learns which vehicle is on screen only through this, so
+    // without it the pattern panel sat on its empty state even though a
+    // trajectory was rendered right above it.
+    onSelect(candidate);
     load(candidate);
-  }, [events, autoPicked, selected, load]);
+  }, [events, autoPicked, selected, load, onSelect]);
 
   // Clicking a sighting in the detection log lands here. Guarded on `active`
   // so re-renders of the parent do not refetch the plate already displayed.

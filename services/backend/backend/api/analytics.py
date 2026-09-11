@@ -11,6 +11,7 @@ from sqlalchemy import case, desc, func
 from sqlalchemy.orm import Session
 
 from backend.database import get_db
+from backend.models.analytics_agg import DatasetKpi
 from backend.models.camera import Camera
 from backend.models.traffic_snapshot import TrafficSnapshot
 from backend.models.vehicle_event import VehicleEvent
@@ -37,14 +38,44 @@ def analytics_summary(db: Session = Depends(get_db)):
     if cached:
         return cached
 
-    total_events = db.query(func.count(VehicleEvent.event_id)).scalar() or 0
-    unique_plates = (
-        db.query(func.count(func.distinct(VehicleEvent.plate)))
-        .filter(VehicleEvent.plate.isnot(None))
-        .scalar()
-        or 0
-    )
     last_hour = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=1)
+
+    # Read the headline totals from the precomputed rollup, not from
+    # vehicle_events.
+    #
+    # This endpoint used to run COUNT(*) plus COUNT(DISTINCT plate) over the
+    # whole table on every dashboard load. At 36.6M rows that is a full scan
+    # and a 36M-row distinct aggregation — it exceeded 25s, the browser gave
+    # up, and every headline KPI rendered as 0. `dataset_kpi` exists for
+    # exactly this (see backend/models/analytics_agg.py) and the same figures
+    # come back as a single-row primary-key lookup in under a millisecond.
+    #
+    # The tradeoff is the one that table documents: these totals are as fresh
+    # as the last rollup refresh, not to-the-second. For a lifetime total over
+    # a year of history that is the right trade. Anything that must be exact
+    # to the second (the live feed, an alert) reads vehicle_events directly.
+    kpi = db.query(DatasetKpi).filter(DatasetKpi.scope == "global").first()
+
+    if kpi is not None and kpi.total_events:
+        total_events = kpi.total_events
+        unique_plates = kpi.unique_vehicles
+        lifetime_avg_speed = kpi.avg_speed_kmh
+    else:
+        # No rollup yet — a fresh database, or one populated by the live feeder
+        # alone. Fall back to the live aggregate, which is only affordable
+        # because an empty/small table is what this branch implies.
+        total_events = db.query(func.count(VehicleEvent.event_id)).scalar() or 0
+        unique_plates = (
+            db.query(func.count(func.distinct(VehicleEvent.plate)))
+            .filter(VehicleEvent.plate.isnot(None))
+            .scalar()
+            or 0
+        )
+        lifetime_avg_speed = None
+
+    # Kept live: an indexed range scan over the tail of `timestamp`, which is
+    # milliseconds, and "last hour" is the one figure on the header that has to
+    # actually move while someone is watching.
     last_hour_count = (
         db.query(func.count(VehicleEvent.event_id))
         .filter(VehicleEvent.timestamp >= last_hour)
@@ -55,7 +86,7 @@ def analytics_summary(db: Session = Depends(get_db)):
         db.query(func.avg(VehicleEvent.speed))
         .filter(VehicleEvent.speed.isnot(None), VehicleEvent.timestamp >= last_hour)
         .scalar()
-    )
+    ) or lifetime_avg_speed
 
     res = {
         "total_detections": total_events,

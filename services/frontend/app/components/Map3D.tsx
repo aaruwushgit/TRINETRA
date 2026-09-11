@@ -116,6 +116,15 @@ export default function Map3D({
     });
     map.current = m;
 
+    // Debug handle. WebGL content cannot be read back from the canvas
+    // (preserveDrawingBuffer is false) and MapLibre fetches tiles inside a web
+    // worker, so neither a screenshot nor the main-thread network log can tell
+    // you whether the map is actually rendering. Asking the map itself is the
+    // only reliable check, which needs a reference to it.
+    if (typeof window !== "undefined") {
+      (window as unknown as { __map?: MLMap }).__map = m;
+    }
+
     m.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-left");
     m.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
 
@@ -125,13 +134,31 @@ export default function Map3D({
       if (String(e?.error?.message || "").includes("style")) setFailed(true);
     });
 
-    m.on("load", () => installLayers(m));
+    // Overlay installation is deliberately NOT gated on the `load` event.
+    //
+    // `load` fires only once the basemap's sources have tiles. If the vector
+    // tile host is unreachable — blocked worker CORS, an offline venue, a
+    // rate-limited endpoint — `load` never fires, and gating on it produced a
+    // completely blank panel: no cameras, no trajectory, no predictions, none
+    // of which need tiles at all. Everything this application draws is local
+    // data, so it must survive the basemap failing.
+    //
+    // `styledata` fires as soon as the style JSON is parsed and the layer list
+    // exists, which is all that adding layers actually requires.
+    const tryInstall = () => {
+      if (map.current !== m) return;
+      if (m.getSource(SRC_CAMERAS)) return;          // already installed
+      if (!m.getStyle()?.layers?.length) return;     // style not parsed yet
+      try {
+        installLayers(m);
+      } catch {
+        // A style without the expected basemap layers is still usable for our
+        // overlays; retry on the next styledata rather than giving up.
+      }
+    };
 
-    // Changing the basemap destroys every custom source and layer, so they are
-    // reinstalled on each style load rather than only on first load.
-    m.on("styledata", () => {
-      if (m.isStyleLoaded() && !m.getSource(SRC_CAMERAS)) installLayers(m);
-    });
+    m.on("styledata", tryInstall);
+    m.on("load", tryInstall);
 
     function installLayers(m: MLMap) {
       // ── 3D buildings ────────────────────────────────────────────────────
@@ -148,6 +175,9 @@ export default function Map3D({
         .layers?.find((l) => (l as { "source-layer"?: string })["source-layer"] === "building");
       const buildingSource = (buildingLayer as { source?: string } | undefined)?.source;
 
+      // Absent when the basemap failed to load or the style has no building
+      // layer. The 3D extrusion is then simply skipped — the overlays below
+      // still install.
       if (buildingSource && !m.getLayer("buildings-3d")) {
         m.addLayer(
           {
