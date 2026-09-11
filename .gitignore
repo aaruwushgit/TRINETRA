@@ -9,6 +9,18 @@ archive/
 vehicle_models.zip
 vehicle_models/
 
+# secrets — real env files never get committed, only the .example templates.
+# This repo is public and NEXT_PUBLIC_TOMTOM_API_KEY / API keys live in these.
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# node / next
+node_modules/
+.next/
+next-env.d.ts
+
 # python
 .venv/
 venv/

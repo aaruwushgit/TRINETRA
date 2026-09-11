@@ -19,7 +19,10 @@ services/backend/sandbox_dbs/
 services/backend/uploads/
 services/backend/job_outputs/
 services/backend/training/
-services/backend/deployments/
+# deployments/ holds BOTH source data and regenerable fixtures. delhi/cameras.json
+# is the real 266-junction OSM camera network the generator reads, so only the
+# large regenerable Mumbai sample is excluded.
+services/backend/deployments/mumbai/
 services/alpr/results/
 services/alpr/notebooks/
 services/alpr/data/
@@ -28,3 +31,8 @@ services/alpr/data/
 # and docs/DEPENDENCY_AUDIT.md §1.1/§1.3) — never needed in the build context.
 services/vehicle-mtmc/
 services/traffic-detection-yolo/
+
+# Frontend build artefacts and local secrets — the image builds these itself.
+services/frontend/node_modules/
+services/frontend/.next/
+services/frontend/.env.local

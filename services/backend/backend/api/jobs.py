@@ -34,7 +34,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 from backend.config import get_settings
 from backend.services import compute_monitor, dataset_service, video_job_service
@@ -222,6 +222,36 @@ def _submit_or_400(fn, **kwargs) -> str:
         raise HTTPException(
             status_code=500, detail=f"Could not start job: {type(exc).__name__}: {exc}"
         ) from exc
+
+
+@_rest.get("/{job_id}/preview.jpg", response_class=Response)
+def job_preview(job_id: str, seq: int | None = None):
+    """The newest annotated frame from a running job, as a JPEG.
+
+    Served as an image rather than embedded in the progress WebSocket so the
+    display rate is decoupled from the inference rate — a client refreshes an
+    <img> as fast as it can paint, and never blocks the socket carrying
+    cancellation and plate updates.
+
+    `seq` is accepted and ignored: it exists so a client can bust its own HTTP
+    cache per frame. `Cache-Control: no-store` covers the rest.
+    """
+    jpeg, current, frame_no = video_job_service.get_job_preview(job_id)
+    if jpeg is None:
+        # 204 rather than 404: the job may be real and simply not have produced
+        # a frame yet (queued, or an image job), and a 404 would make a client
+        # think the job id was wrong. Returned directly rather than raised —
+        # HTTPException would attach a JSON body, and 204 must not have one.
+        return Response(status_code=204, headers={"Cache-Control": "no-store"})
+    return Response(
+        content=jpeg,
+        media_type="image/jpeg",
+        headers={
+            "Cache-Control": "no-store, max-age=0",
+            "X-Preview-Seq": str(current),
+            "X-Preview-Frame": str(frame_no),
+        },
+    )
 
 
 # ── submission ───────────────────────────────────────────────────────────────

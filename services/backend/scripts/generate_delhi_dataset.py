@@ -79,6 +79,7 @@ from __future__ import annotations
 
 import argparse
 import heapq
+import io
 import json
 import math
 import os
@@ -151,8 +152,13 @@ PROFILE_BY_TYPE = {
 @dataclass(frozen=True)
 class Profile:
     """
-    days_lo/hi   — active days out of the month (nobody drives past every camera
-                   every day; this is the main knob on realism *and* volume)
+    days_lo/hi   — active days per REFERENCE_WINDOW_DAYS (30). Expressed per
+                   month rather than absolutely so the same profile stays
+                   meaningful whatever window is generated: 18-24 days a month
+                   is a commuter, and over a year that has to become ~220-290
+                   days, not 18-24. `active_range()` does the scaling. Nobody
+                   drives past every camera every day, and this is the main
+                   knob on realism *and* volume.
     trips_lo/hi  — trips on an active day
     hops_lo/hi   — camera hops per trip before the vehicle leaves the covered
                    corridor
@@ -168,6 +174,27 @@ class Profile:
     dests: int
     weekend: float
 
+    def active_range(self, days: int) -> tuple[int, int]:
+        """(lo, hi) active days for a window of `days`, scaled from the monthly rate.
+
+        Clamped to the window so a short run cannot ask for more active days
+        than exist — `randint(26, 3)` is an empty range, which is what a 3-day
+        smoke test used to crash on.
+        """
+        scale = days / REFERENCE_WINDOW_DAYS
+        lo = max(1, round(self.days_lo * scale))
+        hi = max(lo, round(self.days_hi * scale))
+        return min(lo, days), min(hi, days)
+
+
+# Profiles are written per 30-day month; active_range() rescales them to the
+# window actually being generated.
+REFERENCE_WINDOW_DAYS = 30
+
+# Probability a vehicle does NOT return home at the end of an active day.
+# Small on purpose: it exists so the pattern is not perfectly periodic, which
+# would make anomaly detection trivial and unconvincing.
+STAY_OUT_P = 0.12
 
 PROFILES = {
     # 18-24 of 30 days, out-and-back on a fixed corridor: the classic commuter.
@@ -235,6 +262,9 @@ POI_REASONS = [
     "Stolen vehicle — FIR 1188/2026, Dwarka PS",
 ]
 
+# Kept for the SQLite path and for scripts/live_event_feeder.py, which imports
+# it. The Postgres bulk path uses COPY with EVENT_COLUMNS instead, and the
+# feeder builds its own %s-style statement when running against Postgres.
 INSERT_EVENT_SQL = (
     "INSERT INTO vehicle_events "
     "(event_id, camera_id, local_track_id, timestamp, plate, plate_confidence, "
@@ -601,6 +631,39 @@ class Simulator:
         self.day0_ist_midnight = ((ist_now // 86400) - (days - 1)) * 86400
         self.dow0 = int((self.day0_ist_midnight // 86400 + 3) % 7)  # epoch day 0 = Thursday
 
+    def day_targets(self, veh, cfg: Profile, trips: int, rand, randint) -> list[int]:
+        """Where this vehicle goes on one active day, in order.
+
+        Out-and-back, not a random walk. Previously each trip drew a target
+        independently from (home,) + dests, so a vehicle wandered between its
+        destinations and only returned home by coincidence — 1/(1+len(dests))
+        of the time. Real traffic does not look like that: a vehicle that
+        leaves home comes back to it, usually the same day, and usually from
+        the same place it went to.
+
+        So the day is structured: out to the primary destination (its "work"),
+        optional errands in the middle drawn from the rest of the corridor,
+        then home. `STAY_OUT_P` of days deliberately break the pattern by not
+        returning, because a model that is perfectly periodic is its own kind
+        of unrealistic — and the anomaly detector needs a baseline that has
+        some natural variance in it.
+
+        This is also what the next-hop predictor is meant to be able to learn:
+        a commute is a learnable pattern, Brownian motion is not.
+        """
+        work = veh.dests[0] if veh.dests else veh.home
+        if trips <= 1:
+            return [work]
+
+        plan = [work]
+        for _ in range(trips - 2):
+            if veh.dests and rand() < 0.7:
+                plan.append(veh.dests[randint(0, len(veh.dests) - 1)])
+            else:
+                plan.append(veh.home)
+        plan.append(work if rand() < STAY_OUT_P else veh.home)
+        return plan
+
     def active_days(self, cfg: Profile, rand, randint) -> list[int]:
         """
         Pick which days of the month this vehicle actually drives. Weekend days
@@ -608,7 +671,8 @@ class Simulator:
         the weekly rhythm — commuters nearly vanish on Sunday, autos barely
         notice.
         """
-        want = randint(cfg.days_lo, min(cfg.days_hi, self.days))
+        lo, hi = cfg.active_range(self.days)
+        want = randint(lo, hi)
         pool = list(range(self.days))
         self.rng.shuffle(pool)
         chosen = []
@@ -670,10 +734,13 @@ class Simulator:
                 for _ in range(trips)
             )
 
-            for depart_ist in departures:
+            plan = self.day_targets(veh, cfg, len(departures), rand, randint)
+
+            for trip_no, depart_ist in enumerate(departures):
                 first_trip = False
-                # Prefer going somewhere other than where we already are.
-                target = targets[randint(0, len(targets) - 1)]
+                target = plan[trip_no] if trip_no < len(plan) else veh.home
+                # Already there: fall back to anywhere else on the corridor
+                # rather than emitting a zero-length trip.
                 if target == current:
                     target = targets[(randint(0, len(targets) - 1) + 1) % len(targets)]
                 if target == current:
@@ -846,6 +913,168 @@ def iter_rows(vehicles, sim: Simulator, net: CameraNet, start_epoch: int, end_ep
 # Bulk load
 # ─────────────────────────────────────────────────────────────────────────────
 
+class Dialect:
+    """Which database we are loading into, and the few things that differ.
+
+    The generator was written for SQLite and is now used against Postgres too.
+    Rather than sprinkle `if postgres` through every function, the handful of
+    genuine differences are collected here: parameter style, upsert syntax,
+    truncation, boolean literals, and whether PRAGMAs mean anything.
+    """
+
+    def __init__(self, engine) -> None:
+        self.name = engine.dialect.name
+        self.pg = self.name.startswith("postgres")
+
+    @property
+    def ph(self) -> str:
+        """Parameter placeholder: psycopg2 uses %s, sqlite3 uses ?."""
+        return "%s" if self.pg else "?"
+
+    def marks(self, n: int) -> str:
+        return ",".join([self.ph] * n)
+
+    @property
+    def true(self):
+        """SQLite has no boolean type; Postgres will not accept 1 for one."""
+        return True if self.pg else 1
+
+    @property
+    def false(self):
+        return False if self.pg else 0
+
+    def hour_of(self, col: str) -> str:
+        """Hour-of-day as an integer. SQLite has strftime, Postgres EXTRACT."""
+        if self.pg:
+            return f"EXTRACT(HOUR FROM {col})::int"
+        return f"CAST(strftime('%H', {col}) AS INTEGER)"
+
+    def hour_bucket(self, col: str) -> str:
+        """Truncate a timestamp to the hour.
+
+        SQLite stores timestamps as TEXT, so slicing the ISO string is the
+        cheapest possible truncation and avoids re-parsing every row. Postgres
+        has a real timestamp type, where `date_trunc` is both correct and
+        index-friendly, and `substr` is not even applicable.
+        """
+        if self.pg:
+            return f"date_trunc('hour', {col})"
+        return f"substr({col}, 1, 13) || ':00:00'"
+
+    def hour_group(self, col: str) -> str:
+        """The same truncation, for use in GROUP BY."""
+        if self.pg:
+            return f"date_trunc('hour', {col})"
+        return f"substr({col}, 1, 13)"
+
+    def dow_of(self, col: str) -> str:
+        """Day of week as 0-6 with Sunday = 0, matching strftime('%w')."""
+        if self.pg:
+            return f"EXTRACT(DOW FROM {col})::int"
+        return f"CAST(strftime('%w', {col}) AS INTEGER)"
+
+    def minutes_between(self, later: str, earlier: str) -> str:
+        """Difference in minutes as a float.
+
+        SQLite has no interval type, so julianday() differences are scaled by
+        1440. Postgres subtracts timestamps into an interval, so the epoch
+        seconds are divided by 60 instead.
+        """
+        if self.pg:
+            # Cast to double precision: EXTRACT yields `numeric`, which psycopg2
+            # hands back as decimal.Decimal, and Decimal does not mix with the
+            # float arithmetic downstream. SQLite already returns a float.
+            return (
+                f"(EXTRACT(EPOCH FROM ({later} - {earlier})) / 60.0)"
+                "::double precision"
+            )
+        return f"(julianday({later}) - julianday({earlier})) * 1440.0"
+
+    def upsert(self, table: str, columns: list[str], conflict: str) -> str:
+        """INSERT ... upserting on `conflict`, in this dialect's syntax."""
+        cols = ", ".join(columns)
+        if self.pg:
+            updates = ", ".join(f"{c} = EXCLUDED.{c}" for c in columns if c != conflict)
+            return (
+                f"INSERT INTO {table} ({cols}) VALUES ({self.marks(len(columns))}) "
+                f"ON CONFLICT ({conflict}) DO UPDATE SET {updates}"
+            )
+        return f"INSERT OR REPLACE INTO {table} ({cols}) VALUES ({self.marks(len(columns))})"
+
+
+class _CopyStream(io.RawIOBase):
+    """Adapts a row iterator into a readable CSV stream for Postgres COPY.
+
+    COPY rather than executemany is not a micro-optimisation at this scale: 40M
+    rows through INSERT is hours of round-trips and WAL churn, while COPY
+    streams straight into the heap. The adapter exists so the rows never have to
+    be materialised — `read` pulls from the generator on demand, so memory stays
+    flat whether the run is 10M rows or 200M.
+    """
+
+    def __init__(self, rows, created_at: str, on_progress=None, every: int = 1_000_000) -> None:
+        self._rows = iter(rows)
+        self._created_at = created_at
+        self._buf = ""
+        self._done = False
+        self.count = 0
+        self._on_progress = on_progress
+        self._every = every
+
+    def readable(self) -> bool:
+        return True
+
+    @staticmethod
+    def _field(value) -> str:
+        # COPY ... WITH (FORMAT csv) treats an unquoted empty field as NULL,
+        # which is exactly what we want for the nullable columns.
+        if value is None:
+            return ""
+        text = str(value)
+        if any(c in text for c in (',', '"', "\n", "\r")):
+            return '"' + text.replace('"', '""') + '"'
+        return text
+
+    def readinto(self, target) -> int:
+        want = len(target)
+        while len(self._buf) < want and not self._done:
+            try:
+                row = next(self._rows)
+            except StopIteration:
+                self._done = True
+                break
+            self.count += 1
+            if self._on_progress and self.count % self._every == 0:
+                self._on_progress(self.count)
+            self._buf += ",".join(
+                self._field(v) for v in (row[:13] + (self._created_at,))
+            ) + "\n"
+
+        if not self._buf:
+            return 0
+        chunk = self._buf[:want]
+        self._buf = self._buf[len(chunk):]
+        encoded = chunk.encode("utf-8")
+        target[: len(encoded)] = encoded
+        return len(encoded)
+
+
+EVENT_COLUMNS = (
+    "event_id", "camera_id", "local_track_id", "timestamp", "plate",
+    "plate_confidence", "latitude", "longitude", "direction", "vehicle_type",
+    "vehicle_color", "speed", "global_vehicle_id", "created_at",
+)
+
+# Postgres session settings for a bulk load. synchronous_commit=off is the big
+# one: it lets COPY stop waiting on fsync per transaction. A crash mid-load just
+# means re-running the generator, which is the same trade as
+# `PRAGMA synchronous=OFF` below.
+PG_LOAD_SETTINGS = (
+    "SET synchronous_commit = off",
+    "SET maintenance_work_mem = '512MB'",
+    "SET work_mem = '128MB'",
+)
+
 LOAD_PRAGMAS = (
     "PRAGMA journal_mode=WAL",       # kept for the demo: feeder writes, API reads
     "PRAGMA synchronous=OFF",        # a crash mid-load just means re-running the generator
@@ -876,43 +1105,130 @@ POST_LOAD_INDEXES = (
 )
 
 
+class Cur:
+    """Cursor wrapper so `execute(...).fetchall()` works on both drivers.
+
+    sqlite3's `Cursor.execute` returns the cursor, psycopg2's returns None.
+    This generator was written against sqlite3 and chains fetches off execute
+    in about eighteen places; wrapping the cursor is one change instead of
+    eighteen, and it keeps those call sites readable.
+    """
+
+    def __init__(self, cur) -> None:
+        self._c = cur
+
+    def execute(self, *args, **kwargs) -> "Cur":
+        self._c.execute(*args, **kwargs)
+        return self
+
+    def executemany(self, *args, **kwargs) -> "Cur":
+        self._c.executemany(*args, **kwargs)
+        return self
+
+    def fetchall(self):
+        return self._c.fetchall()
+
+    def fetchone(self):
+        return self._c.fetchone()
+
+    def __iter__(self):
+        # sqlite3 cursors are iterable and several call sites rely on it
+        # (`for row in cur.execute(...)`). psycopg2's are too, but the wrapper
+        # has to forward it explicitly.
+        return iter(self._c)
+
+    def __getattr__(self, name):
+        # copy_expert, close, rowcount, description, ...
+        return getattr(self._c, name)
+
+
+def cursor(conn) -> Cur:
+    return Cur(conn.cursor())
+
+
+def as_dt(value) -> datetime:
+    """Coerce a timestamp column into a datetime.
+
+    psycopg2 adapts Postgres `timestamp` into a real datetime; sqlite3 hands
+    back the raw TEXT it stored. Call sites that do arithmetic on timestamps
+    have to accept both.
+    """
+    if isinstance(value, datetime):
+        return value
+    return datetime.fromisoformat(str(value))
+
+
 def open_raw(engine):
-    """The DBAPI connection under SQLAlchemy, in autocommit so BEGIN/COMMIT are explicit."""
+    """The DBAPI connection under SQLAlchemy, in autocommit.
+
+    The two drivers spell this differently: sqlite3 wants
+    `isolation_level = None`, psycopg2 wants `autocommit = True`. Both end up
+    with BEGIN/COMMIT under explicit control, which is what the bulk paths
+    below assume.
+    """
     raw = engine.raw_connection()
     dbapi = raw.driver_connection
-    dbapi.isolation_level = None
+    if hasattr(dbapi, "autocommit"):
+        dbapi.autocommit = True          # psycopg2
+    else:
+        dbapi.isolation_level = None     # sqlite3
     return raw, dbapi
 
 
+def tune_for_load(cur, d: "Dialect") -> None:
+    """Apply the session settings that make a bulk load fast."""
+    for stmt in (PG_LOAD_SETTINGS if d.pg else LOAD_PRAGMAS):
+        cur.execute(stmt)
+
+
 def load_events(engine, row_iter, batch_size: int, created_at: str) -> tuple[int, float]:
+    """Bulk-load events. COPY on Postgres, batched executemany on SQLite."""
+    d = Dialect(engine)
     raw, conn = open_raw(engine)
-    cur = conn.cursor()
-    for p in LOAD_PRAGMAS:
-        cur.execute(p)
+    cur = cursor(conn)
+    tune_for_load(cur, d)
 
     # Indexes are dropped rather than kept: rebuilding them from scratch on the
-    # finished table is far cheaper than 12M incremental B-tree inserts.
+    # finished table is far cheaper than tens of millions of incremental B-tree
+    # inserts, on either engine.
     for name, _ in POST_LOAD_INDEXES:
         cur.execute(f"DROP INDEX IF EXISTS {name}")
 
     total = 0
     t0 = time.perf_counter()
-    batch: list[tuple] = []
-    append = batch.append
     try:
-        cur.execute("BEGIN")
-        for row in row_iter:
-            append(row[:13] + (created_at,))
-            if len(batch) >= batch_size:
-                cur.executemany(INSERT_EVENT_SQL, batch)
+        if d.pg:
+            def progress(n):
+                el = time.perf_counter() - t0
+                print(f"    copied {n:>12,} events  ({n / el:>9,.0f} ev/s)", flush=True)
+
+            stream = _CopyStream(row_iter, created_at, on_progress=progress)
+            cur.copy_expert(
+                f"COPY vehicle_events ({', '.join(EVENT_COLUMNS)}) "
+                "FROM STDIN WITH (FORMAT csv)",
+                stream,
+            )
+            total = stream.count
+        else:
+            batch: list[tuple] = []
+            append = batch.append
+            insert = (
+                "INSERT INTO vehicle_events "
+                f"({', '.join(EVENT_COLUMNS)}) VALUES ({d.marks(len(EVENT_COLUMNS))})"
+            )
+            cur.execute("BEGIN")
+            for row in row_iter:
+                append(row[:13] + (created_at,))
+                if len(batch) >= batch_size:
+                    cur.executemany(insert, batch)
+                    total += len(batch)
+                    batch.clear()
+                    cur.execute("COMMIT")
+                    cur.execute("BEGIN")
+            if batch:
+                cur.executemany(insert, batch)
                 total += len(batch)
-                batch.clear()
-                cur.execute("COMMIT")
-                cur.execute("BEGIN")
-        if batch:
-            cur.executemany(INSERT_EVENT_SQL, batch)
-            total += len(batch)
-        cur.execute("COMMIT")
+            cur.execute("COMMIT")
     finally:
         cur.close()
         raw.close()
@@ -920,84 +1236,96 @@ def load_events(engine, row_iter, batch_size: int, created_at: str) -> tuple[int
 
 
 def create_indexes(engine) -> list[tuple[str, float]]:
+    d = Dialect(engine)
     raw, conn = open_raw(engine)
-    cur = conn.cursor()
-    for p in LOAD_PRAGMAS:
-        cur.execute(p)
-    # Index builds sort the whole table. temp_store=MEMORY would try to hold a
-    # multi-GB sorter in RAM; spilling to disk is the safer trade at this scale.
-    cur.execute("PRAGMA temp_store=FILE")
+    cur = cursor(conn)
+    tune_for_load(cur, d)
+    if not d.pg:
+        # Index builds sort the whole table. temp_store=MEMORY would try to hold
+        # a multi-GB sorter in RAM; spilling to disk is safer at this scale.
+        cur.execute("PRAGMA temp_store=FILE")
     timings = []
     for name, ddl in POST_LOAD_INDEXES:
         t0 = time.perf_counter()
         cur.execute(ddl)
         timings.append((name, time.perf_counter() - t0))
         print(f"    {name:<44} {timings[-1][1]:>7.1f}s", flush=True)
-    cur.execute("ANALYZE")
+    cur.execute("ANALYZE vehicle_events" if d.pg else "ANALYZE")
     cur.close()
     raw.close()
     return timings
 
 
 def upsert_cameras(engine, cameras: list[dict], deactivate_others: bool) -> None:
+    d = Dialect(engine)
     raw, conn = open_raw(engine)
-    cur = conn.cursor()
+    cur = cursor(conn)
     now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(sep=" ")
     rows = [
         (c["camera_id"], c["name"], c["location"], c["latitude"], c["longitude"],
          c.get("road"), c.get("direction"), c.get("camera_type", "ANPR"),
-         c.get("deployment", DEPLOYMENT_TAG), float(c.get("speed_limit_kmh") or 60.0), 1, now)
+         c.get("deployment", DEPLOYMENT_TAG), float(c.get("speed_limit_kmh") or 60.0),
+         Dialect(engine).true, now)
         for c in cameras
     ]
-    cur.execute("BEGIN")
     cur.executemany(
-        "INSERT OR REPLACE INTO cameras (camera_id, name, location, latitude, longitude, "
-        "road, direction, camera_type, deployment, speed_limit_kmh, is_active, created_at) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        d.upsert(
+            "cameras",
+            ["camera_id", "name", "location", "latitude", "longitude", "road",
+             "direction", "camera_type", "deployment", "speed_limit_kmh",
+             "is_active", "created_at"],
+            conflict="camera_id",
+        ),
         rows,
     )
     if deactivate_others:
         # Leftover cameras from earlier synthetic runs otherwise show up on the
         # Delhi map as dead pins in Bengaluru with zero traffic.
-        cur.execute("UPDATE cameras SET is_active = 0 WHERE deployment != ?", (DEPLOYMENT_TAG,))
-    cur.execute("COMMIT")
+        cur.execute(
+            f"UPDATE cameras SET is_active = {d.ph} WHERE deployment != {d.ph}",
+            (d.false, DEPLOYMENT_TAG),
+        )
     cur.close()
     raw.close()
 
 
 def reset_tables(engine, reset_alerts: bool) -> None:
+    d = Dialect(engine)
     raw, conn = open_raw(engine)
-    cur = conn.cursor()
-    for p in LOAD_PRAGMAS:
-        cur.execute(p)
-    cur.execute("BEGIN")
-    # Bare DELETE hits SQLite's truncate optimisation, so this is fast even on
-    # a 12M-row table.
-    for table in ("vehicle_events", "road_usage", "camera_hourly",
-                  "camera_totals", "dataset_kpi"):
-        cur.execute(f"DELETE FROM {table}")
+    cur = cursor(conn)
+    tune_for_load(cur, d)
+    tables = ["vehicle_events", "road_usage", "camera_hourly",
+              "camera_totals", "dataset_kpi"]
     if reset_alerts:
-        cur.execute("DELETE FROM alerts")
-    cur.execute("COMMIT")
+        tables.append("alerts")
+    if d.pg:
+        # TRUNCATE reclaims the space immediately and skips per-row WAL, which
+        # on a 40M-row table is the difference between seconds and minutes.
+        cur.execute(f"TRUNCATE {', '.join(tables)}")
+    else:
+        # Bare DELETE hits SQLite's truncate optimisation, so this is fast even
+        # on a 12M-row table.
+        for table in tables:
+            cur.execute(f"DELETE FROM {table}")
     cur.close()
     raw.close()
 
 
 def seed_blacklist(engine) -> None:
+    d = Dialect(engine)
     raw, conn = open_raw(engine)
-    cur = conn.cursor()
+    cur = cursor(conn)
     now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(sep=" ")
-    cur.execute("BEGIN")
     cur.executemany(
-        "INSERT OR REPLACE INTO blacklist (plate, reason, added_at) VALUES (?,?,?)",
+        d.upsert("blacklist", ["plate", "reason", "added_at"], conflict="plate"),
         [(p, POI_REASONS[i % len(POI_REASONS)], now) for i, p in enumerate(POI_PLATES)],
     )
-    cur.execute("COMMIT")
     cur.close()
     raw.close()
 
 
 def backfill_poi_alerts(engine, per_plate_cap: int = 400) -> int:
+    d = Dialect(engine)
     """
     Historical BLACKLIST alerts for the watchlist plates.
 
@@ -1009,7 +1337,7 @@ def backfill_poi_alerts(engine, per_plate_cap: int = 400) -> int:
     demo only needs a populated, believable feed.
     """
     raw, conn = open_raw(engine)
-    cur = conn.cursor()
+    cur = cursor(conn)
     inserted = 0
     now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(sep=" ")
     cur.execute("BEGIN")
@@ -1017,12 +1345,14 @@ def backfill_poi_alerts(engine, per_plate_cap: int = 400) -> int:
         reason = POI_REASONS[i % len(POI_REASONS)]
         rows = cur.execute(
             "SELECT event_id, camera_id, timestamp FROM vehicle_events "
-            "WHERE plate = ? ORDER BY timestamp DESC LIMIT ?",
+            f"WHERE plate = {d.ph} ORDER BY timestamp DESC LIMIT {d.ph}",
             (plate, per_plate_cap),
         ).fetchall()
         cur.executemany(
-            "INSERT OR REPLACE INTO alerts (alert_id, vehicle_id, camera_id, alert_type, "
-            "description, status, timestamp, created_at) VALUES (?,?,?,?,?,?,?,?)",
+            d.upsert("alerts",
+                     ["alert_id", "vehicle_id", "camera_id", "alert_type",
+                      "description", "status", "timestamp", "created_at"],
+                     conflict="alert_id"),
             [(f"bl_{plate}_{eid}", plate, cam, "BLACKLIST",
               f"Blacklisted plate {plate} detected. Reason: {reason}",
               "ACTIVE", ts, now) for eid, cam, ts in rows],
@@ -1039,6 +1369,7 @@ def backfill_poi_alerts(engine, per_plate_cap: int = 400) -> int:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def build_aggregates(engine, net: CameraNet) -> dict:
+    d = Dialect(engine)
     """
     Populate road_usage / camera_hourly / camera_totals / dataset_kpi with SQL
     GROUP BYs over the loaded events.
@@ -1048,15 +1379,15 @@ def build_aggregates(engine, net: CameraNet) -> dict:
     Python is the few thousand already-reduced rows.
     """
     raw, conn = open_raw(engine)
-    cur = conn.cursor()
-    for p in LOAD_PRAGMAS:
-        cur.execute(p)
-    cur.execute("PRAGMA temp_store=FILE")
+    cur = cursor(conn)
+    tune_for_load(cur, d)
+    if not d.pg:
+        cur.execute("PRAGMA temp_store=FILE")
     now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(sep=" ")
     timings: dict = {}
 
     # ── camera_hourly ────────────────────────────────────────────────────────
-    # substr() on the stored text is the cheapest possible hour truncation —
+    # Hour truncation is dialect-specific (see Dialect.hour_bucket) —
     # strftime()/datetime() would re-parse every one of 12M timestamps. The
     # result string is already the canonical storage format, so SQLAlchemy
     # reads it straight back as a datetime.
@@ -1064,10 +1395,10 @@ def build_aggregates(engine, net: CameraNet) -> dict:
     cur.execute("BEGIN")
     cur.execute(
         "INSERT INTO camera_hourly (camera_id, hour_bucket, vehicle_count, avg_speed, unique_vehicles) "
-        "SELECT camera_id, substr(timestamp, 1, 13) || ':00:00', "
+f"SELECT camera_id, {d.hour_bucket('timestamp')}, "
         "       COUNT(*), AVG(speed), COUNT(DISTINCT plate) "
         "FROM vehicle_events "
-        "GROUP BY camera_id, substr(timestamp, 1, 13)"
+f"GROUP BY camera_id, {d.hour_group('timestamp')}"
     )
     cur.execute("COMMIT")
     timings["camera_hourly"] = time.perf_counter() - t0
@@ -1079,16 +1410,19 @@ def build_aggregates(engine, net: CameraNet) -> dict:
         "INSERT INTO camera_totals (camera_id, vehicle_count, unique_vehicles, avg_speed, "
         "  first_seen, last_seen, road, latitude, longitude, peak_hour, peak_hour_count, computed_at) "
         "SELECT e.camera_id, COUNT(*), COUNT(DISTINCT e.plate), AVG(e.speed), "
-        "       MIN(e.timestamp), MAX(e.timestamp), c.road, c.latitude, c.longitude, NULL, 0, ? "
+        f"       MIN(e.timestamp), MAX(e.timestamp), c.road, c.latitude, c.longitude, NULL, 0, {d.ph} "
         "FROM vehicle_events e JOIN cameras c ON c.camera_id = e.camera_id "
-        "GROUP BY e.camera_id",
+        # Postgres requires every non-aggregated column in GROUP BY, even ones
+        # functionally dependent on the grouping key. SQLite does not care, and
+        # listing them is valid on both.
+        "GROUP BY e.camera_id, c.road, c.latitude, c.longitude",
         (now,),
     )
     # Peak hour comes off camera_hourly (144k rows), not the raw events — same
     # answer, one thousandth of the work.
     cur.execute(
         "WITH hod AS ("
-        "  SELECT camera_id, CAST(strftime('%H', hour_bucket) AS INTEGER) AS hod, "
+        f"  SELECT camera_id, {d.hour_of('hour_bucket')} AS hod, "
         "         SUM(vehicle_count) AS cnt FROM camera_hourly GROUP BY camera_id, hod"
         "), best AS ("
         "  SELECT camera_id, hod, cnt, "
@@ -1108,7 +1442,7 @@ def build_aggregates(engine, net: CameraNet) -> dict:
     legs = cur.execute(
         "WITH legs AS ("
         "  SELECT LAG(camera_id) OVER w AS from_cam, camera_id AS to_cam, "
-        "         (julianday(timestamp) - julianday(LAG(timestamp) OVER w)) * 1440.0 AS mins "
+        f"         {d.minutes_between('timestamp', 'LAG(timestamp) OVER w')} AS mins "
         "  FROM vehicle_events WHERE plate IS NOT NULL "
         "  WINDOW w AS (PARTITION BY plate ORDER BY timestamp)"
         ") "
@@ -1148,10 +1482,14 @@ def build_aggregates(engine, net: CameraNet) -> dict:
     t0 = time.perf_counter()
     cur.execute("BEGIN")
     cur.executemany(
-        "INSERT OR REPLACE INTO road_usage (from_camera_id, to_camera_id, trip_count, "
-        "  avg_travel_minutes, avg_speed_kmh, max_speed_kmh, distance_km, from_road, to_road, "
-        "  road_label, mid_latitude, mid_longitude, computed_at) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        d.upsert(
+            "road_usage",
+            ["from_camera_id", "to_camera_id", "trip_count", "avg_travel_minutes",
+             "avg_speed_kmh", "max_speed_kmh", "distance_km", "from_road", "to_road",
+             "road_label", "mid_latitude", "mid_longitude", "computed_at"],
+            # Composite natural key, so the conflict target is the pair.
+            conflict="from_camera_id, to_camera_id",
+        ),
         ru_rows,
     )
     cur.execute("COMMIT")
@@ -1167,15 +1505,19 @@ def build_aggregates(engine, net: CameraNet) -> dict:
         "       MIN(first_seen), MAX(last_seen) FROM camera_totals"
     ).fetchone()
     unique_vehicles = cur.execute(
-        "SELECT COUNT(*) FROM (SELECT DISTINCT plate FROM vehicle_events WHERE plate IS NOT NULL)"
+        "SELECT COUNT(*) FROM (SELECT DISTINCT plate FROM vehicle_events WHERE plate IS NOT NULL) AS sub"
     ).fetchone()[0]
-    camera_count = cur.execute("SELECT COUNT(*) FROM cameras WHERE is_active = 1").fetchone()[0]
+    camera_count = cur.execute(f"SELECT COUNT(*) FROM cameras WHERE is_active = {d.ph}", (d.true,)).fetchone()[0]
     cur.execute("BEGIN")
     cur.execute(
-        "INSERT OR REPLACE INTO dataset_kpi (scope, total_events, unique_vehicles, camera_count, "
-        "  avg_speed_kmh, segment_count, first_event_at, last_event_at, computed_at) "
-        "VALUES ('global',?,?,?,?,?,?,?,?)",
-        (total_events, unique_vehicles, camera_count,
+        d.upsert(
+            "dataset_kpi",
+            ["scope", "total_events", "unique_vehicles", "camera_count",
+             "avg_speed_kmh", "segment_count", "first_event_at", "last_event_at",
+             "computed_at"],
+            conflict="scope",
+        ),
+        ("global", total_events, unique_vehicles, camera_count,
          round(weighted_speed, 2) if weighted_speed else None,
          len(ru_rows), first_seen, last_seen, now),
     )
@@ -1209,9 +1551,11 @@ def percentile(sorted_vals: list[float], p: float) -> float:
 
 
 def verify(engine, net: CameraNet, agg: dict, sample_plates: list[str]) -> None:
+    d = Dialect(engine)
     raw, conn = open_raw(engine)
-    cur = conn.cursor()
-    cur.execute("PRAGMA cache_size=-200000")
+    cur = cursor(conn)
+    if not d.pg:
+        cur.execute("PRAGMA cache_size=-200000")
     bar = lambda v, mx, w=52: "#" * max(0, int(round(v / mx * w))) if mx else ""
 
     print("\n" + "=" * 84)
@@ -1247,11 +1591,11 @@ def verify(engine, net: CameraNet, agg: dict, sample_plates: list[str]) -> None:
     idx = {cid: i for i, cid in enumerate(net.ids)}
     for plate in sample_plates[:3000]:
         rows = cur.execute(
-            "SELECT camera_id, timestamp FROM vehicle_events WHERE plate = ? ORDER BY timestamp",
+            f"SELECT camera_id, timestamp FROM vehicle_events WHERE plate = {d.ph} ORDER BY timestamp",
             (plate,)).fetchall()
         prev = None
         for cam, ts in rows:
-            t = datetime.fromisoformat(ts)
+            t = as_dt(ts)
             if prev and prev[0] != cam:
                 dt_h = (t - prev[1]).total_seconds() / 3600.0
                 if 0 < dt_h <= MAX_SEGMENT_GAP_MINUTES / 60.0:
@@ -1268,33 +1612,33 @@ def verify(engine, net: CameraNet, agg: dict, sample_plates: list[str]) -> None:
 
     # (b) One vehicle's trajectory, chronological and geographically contiguous.
     probe = cur.execute(
-        "SELECT plate FROM vehicle_events WHERE plate = ? LIMIT 1", (POI_PLATES[0],)).fetchone()
+        f"SELECT plate FROM vehicle_events WHERE plate = {d.ph} LIMIT 1", (POI_PLATES[0],)).fetchone()
     probe_plate = probe[0] if probe else sample_plates[0]
     traj = cur.execute(
         "SELECT camera_id, timestamp, latitude, longitude, speed FROM vehicle_events "
-        "WHERE plate = ? ORDER BY timestamp LIMIT 14", (probe_plate,)).fetchall()
+        f"WHERE plate = {d.ph} ORDER BY timestamp LIMIT 14", (probe_plate,)).fetchall()
     print(f"\n[b] Trajectory of {probe_plate} (first 14 sightings)")
     prev = None
     ordered = True
     for cam, ts, la, lo, sp in traj:
-        t = datetime.fromisoformat(ts)
+        t = as_dt(ts)
         if prev:
             if t < prev[1]:
                 ordered = False
             gap_km = haversine_km(prev[2], prev[3], la, lo)
             gap_min = (t - prev[1]).total_seconds() / 60.0
             implied = gap_km / (gap_min / 60.0) if gap_min > 0 else 0.0
-            print(f"    {ts[:19]}  {cam:<26} {sp:>5.1f} km/h  "
+            print(f"    {str(ts)[:19]}  {cam:<26} {sp:>5.1f} km/h  "
                   f"| +{gap_km:5.2f} km in {gap_min:7.2f} min -> {implied:6.1f} km/h implied")
         else:
-            print(f"    {ts[:19]}  {cam:<26} {sp:>5.1f} km/h  | trip start")
+            print(f"    {str(ts)[:19]}  {cam:<26} {sp:>5.1f} km/h  | trip start")
         prev = (cam, t, la, lo)
     print(f"    chronologically ordered: {ordered}")
 
     # (c) Diurnal curve. Read off camera_hourly, which is the point of having it.
     print("\n[c] Events per hour-of-day (from camera_hourly)")
     hod = cur.execute(
-        "SELECT CAST(strftime('%H', hour_bucket) AS INTEGER) h, SUM(vehicle_count) c "
+        f"SELECT {d.hour_of('hour_bucket')} h, SUM(vehicle_count) c "
         "FROM camera_hourly GROUP BY h ORDER BY h").fetchall()
     mx = max(c for _, c in hod) if hod else 1
     print("     UTC   IST    events")
@@ -1305,7 +1649,7 @@ def verify(engine, net: CameraNet, agg: dict, sample_plates: list[str]) -> None:
 
     print("\n    Events per day-of-week (weekly rhythm)")
     dow = cur.execute(
-        "SELECT CAST(strftime('%w', hour_bucket) AS INTEGER) d, SUM(vehicle_count) c "
+        f"SELECT {d.dow_of('hour_bucket')} d, SUM(vehicle_count) c "
         "FROM camera_hourly GROUP BY d ORDER BY d").fetchall()
     names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
     mx = max(c for _, c in dow) if dow else 1
@@ -1374,9 +1718,11 @@ DEMO_QUERIES = (
 
 
 def time_demo_queries(engine, plate: str, camera_id: str) -> None:
+    d = Dialect(engine)
     raw, conn = open_raw(engine)
-    cur = conn.cursor()
-    cur.execute("PRAGMA cache_size=-200000")
+    cur = cursor(conn)
+    if not d.pg:
+        cur.execute("PRAGMA cache_size=-200000")
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     params = {
         "plate": plate,
@@ -1395,7 +1741,7 @@ def time_demo_queries(engine, plate: str, camera_id: str) -> None:
         for key in ("plate", "since", "week", "cam", "hour"):
             token = f":{key}"
             while token in stmt:
-                stmt = stmt.replace(token, "?", 1)
+                stmt = stmt.replace(token, d.ph, 1)
                 bind.append(params[key])
         best = math.inf
         rows = 0
@@ -1406,14 +1752,15 @@ def time_demo_queries(engine, plate: str, camera_id: str) -> None:
         flag = "  <-- SLOW" if best > 1.0 else ""
         print(f"    {best * 1000:>9.2f} ms  {rows:>8,} rows   {label}{flag}")
 
-    print("\n  EXPLAIN QUERY PLAN — plate lookup must use the index, not scan 12M rows:")
+    explain = "EXPLAIN QUERY PLAN" if not d.pg else "EXPLAIN"
+    print(f"\n  {explain} — plate lookup must use the index, not scan the whole table:")
     for row in cur.execute(
-        "EXPLAIN QUERY PLAN SELECT event_id, camera_id, timestamp FROM vehicle_events "
-        "WHERE plate = ? ORDER BY timestamp", ("DL01CP0001",)):
+        f"{explain} SELECT event_id, camera_id, timestamp FROM vehicle_events "
+        f"WHERE plate = {d.ph} ORDER BY timestamp", ("DL01CP0001",)):
         print(f"    {row[-1]}")
-    print("\n  EXPLAIN QUERY PLAN — road_usage top-N:")
+    print(f"\n  {explain} — road_usage top-N:")
     for row in cur.execute(
-        "EXPLAIN QUERY PLAN SELECT road_label FROM road_usage ORDER BY trip_count DESC LIMIT 20"):
+        f"{explain} SELECT road_label FROM road_usage ORDER BY trip_count DESC LIMIT 20"):
         print(f"    {row[-1]}")
     cur.close()
     raw.close()
@@ -1582,10 +1929,13 @@ def main() -> None:
     print(f"  road_usage: {agg['segments']:,} directed segments  |  "
           f"camera_hourly + camera_totals + dataset_kpi populated")
 
-    # WAL checkpoint so the reported file size is the real on-disk footprint.
-    raw, conn = open_raw(engine)
-    conn.cursor().execute("PRAGMA wal_checkpoint(TRUNCATE)")
-    raw.close()
+    # SQLite only: checkpoint the WAL so the reported file size is the real
+    # on-disk footprint. Postgres has no equivalent (and no single file), so
+    # the size report below is skipped for it.
+    if not Dialect(engine).pg:
+        raw, conn = open_raw(engine)
+        cursor(conn).execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        raw.close()
     db_path, size = db_size_bytes(db_url)
 
     # ── 7. Verify ────────────────────────────────────────────────────────────
@@ -1595,7 +1945,7 @@ def main() -> None:
         verify(engine, net, agg, sample_plates)
         busiest_cam = net.ids[0]
         raw, conn = open_raw(engine)
-        row = conn.cursor().execute(
+        row = cursor(conn).execute(
             "SELECT camera_id FROM camera_totals ORDER BY vehicle_count DESC LIMIT 1").fetchone()
         raw.close()
         if row:

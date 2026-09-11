@@ -21,8 +21,13 @@ bcrypt>=4.0.0
 # real detection/OCR code rather than a stub.
 
 # ── Database ───────────────────────────────────────────────────
-# SQLite only, for now (DATABASE_URL=sqlite:///./dev.db). Postgres is
-# provisioned in docker-compose.yml but nothing currently connects to it —
-# alembic, psycopg2-binary and geoalchemy2 were removed because none of them
-# are imported by any code path. Re-add all three together if/when the
-# backend actually switches DATABASE_URL to postgresql://...
+# Postgres is now the primary store. It was provisioned in
+# docker-compose.yml and unused for a long time; a year of history
+# (~40M vehicle_events) is what finally forced the move — SQLite corrupted
+# itself at 13.3M rows with three concurrent writers, which is exactly the
+# failure class Postgres removes.
+#
+# geoalchemy2 is still NOT here: all geometry remains plain Float lat/lon with
+# hand-written haversine, so PostGIS types are not used yet even though the
+# image provides them.
+psycopg2-binary>=2.9.9

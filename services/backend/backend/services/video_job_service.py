@@ -64,6 +64,12 @@ UPLOAD_DIR = PROJECT_ROOT / "uploads"
 # about memory.
 MAX_JOBS = 50
 
+# Live preview: 6 frames/sec at 720px wide is smooth enough to read and cheap
+# enough to be invisible next to detection.
+PREVIEW_WIDTH = 720
+PREVIEW_QUALITY = 72
+PREVIEW_MIN_INTERVAL_S = 1.0 / 6.0
+
 RECENT_PLATES_CAP = 40
 
 
@@ -318,6 +324,20 @@ class Job:
     _cancel: threading.Event = field(default_factory=threading.Event, repr=False)
     _sampler: Any = field(default=None, repr=False)
 
+    # ── live preview ──────────────────────────────────────────────────────
+    # The newest annotated frame, JPEG-encoded, plus a counter so a client can
+    # tell a new frame from a cached one.
+    #
+    # Held as bytes on the job rather than pushed down the progress WebSocket:
+    # a base64 JPEG in every status frame would multiply that message by ~20x
+    # and the socket is also carrying cancellation and plate updates. A client
+    # pulls this from GET /jobs/{id}/preview.jpg at whatever rate it can
+    # actually render, which decouples display rate from inference rate.
+    _preview: bytes | None = field(default=None, repr=False)
+    _preview_at: float = field(default=0.0, repr=False)
+    preview_seq: int = 0
+    preview_frame: int = 0
+
     # -- progress accounting (called from the pipeline thread) -------------
 
     def note_frame(self, frames: int, detections: int, texts: dict[int, str]) -> None:
@@ -340,6 +360,67 @@ class Job:
                         "provisional": True,
                     }
                 )
+
+    def note_preview(self, image: Any, detections: Any, texts: dict[int, str], frame_no: int) -> None:
+        """Encode an annotated copy of this frame, at most PREVIEW_HZ times a second.
+
+        Throttled and downscaled on purpose. Encoding every frame of a 1080p
+        clip would add more cost than the detector it is meant to illustrate,
+        and no display needs 30 fps of JPEG. The rate limit is wall-clock based
+        rather than frame-based so it behaves the same at stride 1 and stride 5.
+        """
+        now = time.monotonic()
+        if now - self._preview_at < PREVIEW_MIN_INTERVAL_S:
+            return
+
+        try:
+            import cv2
+
+            height, width = image.shape[:2]
+            scale = min(1.0, PREVIEW_WIDTH / float(width))
+            canvas = (
+                cv2.resize(image, (int(width * scale), int(height * scale)),
+                           interpolation=cv2.INTER_AREA)
+                if scale < 1.0
+                else image.copy()
+            )
+            ch, cw = canvas.shape[:2]
+
+            # Detections carry normalized coordinates, so they survive the
+            # resize without rescaling arithmetic.
+            for det in detections or []:
+                x1, y1 = int(det.x1 * cw), int(det.y1 * ch)
+                x2, y2 = int(det.x2 * cw), int(det.y2 * ch)
+                cv2.rectangle(canvas, (x1, y1), (x2, y2), (106, 206, 158), 2)
+                label = f"{det.confidence * 100:.0f}%"
+                cv2.putText(canvas, label, (x1, max(12, y1 - 5)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.42, (106, 206, 158), 1,
+                            cv2.LINE_AA)
+
+            # The vote in progress, which is the interesting part to watch: it
+            # visibly converges as more frames of the same track land.
+            for i, text in enumerate(list(texts.values())[:4]):
+                if text:
+                    cv2.putText(canvas, text, (8, 18 + i * 17),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 207, 125), 2,
+                                cv2.LINE_AA)
+
+            ok, buf = cv2.imencode(".jpg", canvas,
+                                   [cv2.IMWRITE_JPEG_QUALITY, PREVIEW_QUALITY])
+            if not ok:
+                return
+            with self._lock:
+                self._preview = buf.tobytes()
+                self._preview_at = now
+                self.preview_seq += 1
+                self.preview_frame = frame_no
+        except Exception:
+            # A preview is decoration. It must never be able to fail a job.
+            pass
+
+    def snapshot_preview(self) -> tuple[bytes | None, int, int]:
+        with self._lock:
+            return self._preview, self.preview_seq, self.preview_frame
 
     def __post_init__(self) -> None:
         # Not a dataclass field: it is bookkeeping for note_frame's dedupe and
@@ -402,6 +483,13 @@ class Job:
                     "detections": self.detections,
                     "ocr_calls": self.ocr_calls,
                     "unique_plates": len(self.unique_plates),
+                },
+                # `seq` increments whenever a new frame has been encoded, so a
+                # client can skip refetching the image it already has.
+                "preview": {
+                    "seq": self.preview_seq,
+                    "frame": self.preview_frame,
+                    "available": self._preview is not None,
                 },
                 "config": {
                     "stride": self.stride,
@@ -468,6 +556,15 @@ def get_job(job_id: str) -> dict[str, Any] | None:
     with _registry_lock:
         job = _jobs.get(job_id)
     return job.to_dict() if job else None
+
+
+def get_job_preview(job_id: str) -> tuple[bytes | None, int, int]:
+    """The newest annotated frame for a job: (jpeg, seq, frame_number)."""
+    with _registry_lock:
+        job = _jobs.get(job_id)
+    if job is None:
+        return None, 0, 0
+    return job.snapshot_preview()
 
 
 def get_job_plates(job_id: str) -> dict[str, Any] | None:
@@ -737,6 +834,7 @@ def _run_pipeline(job: Job):
         frames = frame.index + 1
         job.note_frame(frames, len(detections), texts)
         job.tick_fps(frames)
+        job.note_preview(frame.image, detections, texts, frames)
         # Returning False is the pipeline's documented way to stop a run early,
         # and it stops it *cleanly* — the workbook is flushed on the way out.
         return not job.cancelled

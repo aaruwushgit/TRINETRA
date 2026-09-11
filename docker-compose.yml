@@ -85,7 +85,7 @@ services:
       # container to touch OCR pays the download.
       - paddlex_models:/root/.paddlex
     environment:
-      DATABASE_URL: sqlite:////data/dev.db
+      DATABASE_URL: postgresql+psycopg2://postgres:postgrespassword@postgres:5432/vehicle_intelligence
       REDIS_URL: redis://redis:6379/0
       USE_REDIS: "true"
       KAFKA_BROKER: kafka:29092
@@ -105,6 +105,35 @@ services:
       kafka:
         condition: service_started
 
+  # Next.js frontend: Surveillance + Sandbox. Replaces the four static HTML
+  # pages FastAPI used to serve (those still work at /app during the
+  # transition). Talks to the backend straight from the browser, so it needs
+  # no server-side proxy — the backend already allows all origins.
+  #
+  # NEXT_PUBLIC_* are BUILD args, not runtime env: Next inlines them into the
+  # client bundle at build time. Changing the TomTom key therefore needs a
+  # rebuild of this service, not just a restart.
+  frontend:
+    build:
+      context: .
+      dockerfile: services/frontend/Dockerfile
+      args:
+        # Reached from the user's browser, so localhost — not the compose
+        # service name, which only resolves inside the network.
+        NEXT_PUBLIC_API_BASE: http://localhost:8000
+        # Read from services/frontend/.env.local (gitignored) if present, else
+        # empty — in which case the traffic toggle reports "no key configured"
+        # and the map falls back to congestion counts from our own events.
+        NEXT_PUBLIC_TOMTOM_API_KEY: ${NEXT_PUBLIC_TOMTOM_API_KEY:-}
+    container_name: vehicle_frontend
+    ports:
+      # 3001 on the host: 3000 is taken by an unrelated local project. The
+      # container still listens on 3000 internally.
+      - "3001:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
   # Keeps "now" populated. Without it the dashboard shows a month of history
   # that stops several days ago, so every last-hour panel reads zero.
   live_feeder:
@@ -117,13 +146,16 @@ services:
       - ./services/backend:/data
       - paddlex_models:/root/.paddlex
     environment:
-      DATABASE_URL: sqlite:////data/dev.db
+      DATABASE_URL: postgresql+psycopg2://postgres:postgrespassword@postgres:5432/vehicle_intelligence
       REDIS_URL: redis://redis:6379/0
       USE_REDIS: "true"
       USE_KAFKA: "false"
       PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
     depends_on:
-      - backend
+      backend:
+        condition: service_started
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
   kafka_consumer:
@@ -136,7 +168,7 @@ services:
       - ./services/backend:/data
       - paddlex_models:/root/.paddlex
     environment:
-      DATABASE_URL: sqlite:////data/dev.db
+      DATABASE_URL: postgresql+psycopg2://postgres:postgrespassword@postgres:5432/vehicle_intelligence
       REDIS_URL: redis://redis:6379/0
       USE_REDIS: "true"
       KAFKA_BROKER: kafka:29092

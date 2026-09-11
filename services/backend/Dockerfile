@@ -47,13 +47,14 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Only the shared-library runtime deps OpenCV/PaddleOCR need to execute —
-# no compiler, no git, no libpq (nothing connects to Postgres; see
-# requirements.txt).
+# Only the shared-library runtime deps OpenCV, PaddleOCR and psycopg2 need to
+# execute — no compiler, no git. libpq5 is the *runtime* client library, not
+# the -dev headers: psycopg2-binary ships its own compiled extension.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
     libgomp1 \
+    libpq5 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /opt/venv /opt/venv
