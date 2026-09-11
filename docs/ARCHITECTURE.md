@@ -35,8 +35,10 @@ in the backend — **the single source of truth for the entire platform**. From
 that one table, and nothing else, the backend derives global vehicle identity
 across cameras, real-time alerts, road-snapped trajectories via OSRM, next-hop
 predictions with statistical confidence bounds, and city-scale congestion
-analytics, and serves all of it through FastAPI plus four vanilla-JS/Leaflet
-pages.
+analytics, and serves all of it through FastAPI plus a Next.js frontend with a
+3D MapLibre map. A year of that history then feeds a per-vehicle pattern miner
+that infers where each vehicle lives and works and flags days it broke its own
+routine.
 
 The architectural bet: **one wide, denormalised event table, and everything
 else derived from it.** Section 13 covers what that costs.
@@ -132,12 +134,14 @@ diagram and `main.py`'s own feature list both overstate it.
   self-contained FastAPI app of its own (`main.py`, `routes.py`,
   `detector.py`, its own templates). Nothing in the platform calls it. Its
   `demo_video/demo.mp4` is used as a camera source fixture.
-- **PostGIS.** `docker-compose.yml` runs `postgis/postgis:15-3.3` and
-  `requirements.txt` declares `geoalchemy2` and `psycopg2-binary`, but
-  `DATABASE_URL` is `sqlite:////data/dev.db` in every service, and
-  `geoalchemy2` is imported **zero** times. All geometry is plain
-  `Float` lat/lon columns and hand-written haversine. Postgres starts, is
-  healthchecked, is depended on — and nothing ever connects to it.
+- **Postgres is now the primary store** (as of the year-of-history work).
+  `DATABASE_URL` is `postgresql+psycopg2://...` for backend, live_feeder and
+  kafka_consumer. What forced the move: SQLite reached 6.5 GB at 13.3M rows and
+  corrupted its own `vehicle_events` indexes under three concurrent writers on
+  a macOS bind mount, and a year of history is ~40M rows.
+  **PostGIS itself is still unused** — `geoalchemy2` is imported zero times and
+  all geometry remains plain `Float` lat/lon with hand-written haversine. The
+  image provides PostGIS; the schema does not use it.
 - **Alembic.** One migration exists, and `init_db()` in `main.py`'s lifespan
   creates tables with `create_all()` instead. `alembic` is imported zero times
   from application code.
@@ -192,6 +196,27 @@ not.** `on_frame` sees the vote *in progress* — `KA02HN182` can become
 database. Only rows that survived voting, the grammar and the cooldown reach the
 workbook, and the workbook is what gets ingested
 (`video_job_service.py` module docstring makes this explicit).
+
+**Throughput knobs, in order of effect.** Detection is ~85% of per-frame cost,
+so the levers are about doing less of it:
+
+| Knob | Effect | Cost |
+|---|---|---|
+| `VideoFileSource(stride=N)` | ~N x — processes 1 frame in N, skipping with `grab()` so skipped frames pay no colour conversion or buffer copy | cheap here, because a vehicle spans many frames and `vote.py` aggregates per character across a track, so thinning removes redundancy before information |
+| `PipelineConfig.batch` | 1.84x measured at 8 | **none** — same weights, resolution and frames, fewer dispatches. Tracking still sees frames one at a time in order |
+| `ANPR_IMGSZ` 640 -> 512 | 1.33x | small recall loss, concentrated in the smallest plates |
+| ~~ONNX runtime~~ | **rejected** | measured ~26% *slower* than torch on arm64 (24.3 vs 32.7 fps at 512). Kept as a switch for x86_64, default off |
+
+Measured end to end on one clip: 68.7s -> 19.9s at matched resolution, ~6x
+against the original 640/stride-1/batch-1 baseline. Frame indices stay the
+**true** frame numbers under stride, because timestamps and logged frame
+references derive from them.
+
+**Live frame preview.** `Job.note_preview` encodes an annotated JPEG — boxes
+with confidence, plus the in-progress vote — throttled to 6 fps at 720px, served
+from `GET /jobs/{id}/preview.jpg`. Pulled as an image rather than pushed down
+the progress WebSocket, so display rate is decoupled from inference rate and a
+slow client cannot back up the pipeline. A preview failure can never fail a job.
 
 **The OCR engine is switched by architecture.** `_paddle_static_engine_is_unreliable()`
 (`ocr.py:190`) forces the `onnxruntime` engine on arm64, because paddle's native
@@ -337,6 +362,48 @@ Next-hop prediction, **zero ML dependencies — pure math on existing DB rows**:
 
 Served at `GET /vehicles/{plate}/predict-next-location`.
 
+### PatternService — `services/pattern_service.py`
+
+Per-vehicle behavioural mining. The distinction from `PredictionService`
+matters: that one answers "where does traffic go from camera X" — a property of
+the *network*, learned from everyone. This answers "what does THIS vehicle
+normally do", a property of the individual, and is only answerable because
+there is a year of history.
+
+**Home and workplace inference.** DBSCAN (haversine metric on radians) over a
+vehicle's sightings, then ask which cluster dominates at night and which
+dominates the weekday commute window. DBSCAN because the number of places a
+vehicle frequents is unknown and is exactly the thing being discovered —
+k-means needs `k`, which is the answer. It also labels sparse sightings as
+noise rather than forcing them into a cluster, so "this vehicle has no stable
+base" is a real output.
+
+The window is the **commute** (7-11, 16-20), not the working day. This was
+wrong on the first pass and worth recording: a fixed camera network watches
+roads, so a vehicle parked at its workplace is invisible from 10:00 to 16:00.
+Clustering that window found nothing for precisely the regular commuters the
+feature should work best on. A candidate workplace must also sit >=1.5 km from
+the inferred home, or the densest daytime cluster is the junction outside the
+vehicle's own house and "work" becomes a synonym for "home".
+
+**Anomaly detection against the vehicle's own baseline.** IsolationForest over
+per-day features (sightings, distinct cameras, first/last/mean hour, max speed,
+distance from home, daily range, weekend flag). Per vehicle on purpose: a taxi
+doing 300 km a day is unremarkable, a hatchback that has done 20 km a day for
+eleven months suddenly doing 300 is the interesting one, and a population-level
+model ranks them identically.
+
+`contamination` is a **quota, not a test** — at 0.06 it labels ~6% of days
+anomalous whether or not anything happened, which on 40 identical days produced
+10 "anomalies" and manufactured suspicion about a vehicle that did nothing. The
+forest therefore only *ranks*; a day is reported only if it also deviates by
+>=2 sigma on some concrete feature, and the z-scores double as the
+human-readable reason. A regular vehicle now returns none.
+
+Declines rather than guesses below 12 sightings or 14 active days. Registered
+as an **optional** router — it is the only feature needing scikit-learn, so a
+missing wheel degrades this alone.
+
 ### SimulationService — `services/simulation_service.py` (1116 LOC)
 
 A **clock**, not a feeder. The demo spans two months centred on now: the past
@@ -405,8 +472,35 @@ instead of taking the API down. This matters during a live demo: a broken
 optional module must not stop the dashboard and the ingestion pipeline from
 serving. `GET /` reports `features` so you can see what came up.
 
-**Frontend** — four self-contained HTML pages, no build step, served as static
-files by the same container:
+**Frontend** — a Next.js 15 / React 19 app (`services/frontend`, its own
+container on host port 3001). Four runtime dependencies: next, react,
+react-dom, maplibre-gl. No Tailwind and no react-leaflet — the terminal theme
+is ported verbatim from the old `index.html` as plain CSS variables, so this is
+a rebuild rather than a redesign, and `output: "standalone"` ships ~60 MB
+instead of a full node_modules.
+
+Two destinations, down from four. The old split meant no single screen looked
+like a working product: a map of cameras that never changed on one page, an
+empty trajectory panel on another, a static log on a third.
+
+| Route | Contents |
+|---|---|
+| `/` | **Surveillance** — one operational screen: 3D map (camera network, congestion, optional TomTom traffic flow), detection log, trajectory tracker, pattern analysis, enforcement alerts, and the simulation-clock ingestion controls |
+| `/sandbox` | Video ANPR (with live frame preview), Photo ANPR, City Dataset, and Benchmarks folded in as a tab |
+
+The map is **MapLibre GL, not Leaflet** — Leaflet is a 2D raster compositor and
+cannot tilt, so "3D" is not a setting it has. Vector tiles come from
+OpenFreeMap (free, no key); its `dark` style carries per-building height for
+the fill-extrusion layer. Three themes are selectable.
+
+Two visual conventions carry meaning and are worth not breaking:
+*blinking* is reserved for next-hop predictions (things about to happen, with
+blink period scaled by probability), while inferred home/workplace are
+**static** squares because they are conclusions drawn from history. And a
+trajectory leg that fell back to a straight line is drawn dashed and amber,
+because rendering a guess identically to a measurement is the map lying.
+
+The old static pages are still served by FastAPI during the transition:
 
 | Route | File | Purpose |
 |---|---|---|
@@ -470,10 +564,20 @@ plate-identified vehicles when association has not run.
 | `FutureEvent` | staged next month, drained by the simulation clock |
 | `analytics_agg` (`RoadUsage` et al.) | precomputed rollups, stale by design |
 
-**Storage.** SQLite everywhere in practice. On this machine `dev.db` is **6.1 GB**
-with a **302 MB WAL** (~12.8M Delhi events). Compose mounts the *directory* at
-`/data`, not the file, because SQLite writes `-wal` and `-shm` alongside and
-cannot create them into a file mount.
+**Storage.** PostgreSQL 15.4, in the `pgdata` named volume. Tuned for bulk
+loading in `docker-compose.yml` (`shared_buffers=1GB`, `work_mem=64MB`,
+`maintenance_work_mem=512MB`, `max_wal_size=4GB`) because the image defaults
+killed the backend mid-load: a 40M-row `COPY` in one transaction emitted ~900 MB
+of WAL against a 1 GB `max_wal_size` with nothing able to recycle it. The
+loaders now `COPY` in 2M-row chunks so checkpoints can recycle between them.
+
+Two operational notes that cost real time to learn:
+* Bulk loads must run with the **frontend stopped**. It polls `/events/recent`
+  every 2s; those `SELECT`s hold ACCESS SHARE, the generator's `TRUNCATE` needs
+  ACCESS EXCLUSIVE, and the truncate then blocks every later read behind it.
+* Do not `docker compose restart backend` while a load is running — the
+  generator runs *inside* that container. The image bakes the source, so a
+  restart cannot pick up host edits anyway; rebuild before starting a load.
 
 ---
 
@@ -575,7 +679,11 @@ Every knob is in `backend/config.py`, env- or `.env`-overridable.
 
 | Setting | Default | Notes |
 |---|---|---|
-| `DATABASE_URL` | `sqlite:///./dev.db` | compose: `sqlite:////data/dev.db` |
+| `DATABASE_URL` | `sqlite:///./dev.db` | compose: `postgresql+psycopg2://postgres:***@postgres:5432/vehicle_intelligence` |
+| `ANPR_IMGSZ` | `512` | detector resolution; cost scales with the square |
+| `ANPR_STRIDE` | `3` | process 1 frame in N — the dominant throughput knob |
+| `ANPR_BATCH` | `8` | frames per detector call; accuracy-neutral |
+| `ANPR_PREFER_ONNX` | `False` | measured *slower* than torch on arm64 |
 | `ANPR_WEIGHTS_PATH` | `../alpr/best.pt` | set this to deploy retrained weights |
 | `ANPR_REPO_PATH` | `../alpr` | sys.path fallback when `import alpr` fails |
 | `ANPR_DEVICE` | `None` (auto: MPS → CUDA → CPU) | compose forces `cpu` |
@@ -618,7 +726,7 @@ this machine.
 | Live push | Redis pub/sub (`alerts:live`, `stats:live`) bridged to WebSockets |
 | Caching | Redis for analytics responses; in-process memo + DB table for OSRM routes |
 | Public isolation | `_SandboxDB` — throwaway per-upload SQLite, production schema |
-| SQLite contention | `_set_busy_timeout(15_000)` in `dataset_service` |
+| DB contention | `lock_timeout` on Postgres sessions; `_set_busy_timeout(15_000)` on the SQLite path |
 | Failure isolation | optional routers degrade individually; `redis_service` fails soft |
 
 ---
@@ -627,12 +735,14 @@ this machine.
 
 Ordered by how much they would cost to hit in production.
 
-1. **SQLite at 6.1 GB with a 302 MB WAL.** The rollup tables are a workaround
-   for the fact that the store cannot serve the query pattern. Postgres/PostGIS
-   is already provisioned in compose and simply never connected; that is the
-   intended fix and it is one env var plus a real migration away.
-2. **`create_all()` instead of Alembic.** One migration exists and is bypassed
-   by `init_db()`. Any schema change on a populated database is manual.
+1. ~~SQLite at 6.1 GB~~ — **resolved**: Postgres is the primary store. The
+   rollup tables remain, but they are now an optimisation rather than a
+   workaround for an engine that could not serve the query pattern.
+2. **`create_all()` instead of Alembic — now worse, not better.** The single
+   migration `a660cfb06462_initial_schema` is an **empty stub** (`upgrade()` is
+   `pass`), so the entire schema exists only via `create_all()`. On Postgres,
+   with 40M rows, any schema change is now a manual operation against real
+   data. This is the most significant remaining debt.
 3. **Two hardcoded absolute host paths** in `docker-compose.yml`,
    `frontend/test.html` and `api/jobs.py` (§11). The deployment is
    machine-specific.
