@@ -494,11 +494,17 @@ class Feeder:
                 "INSERT INTO camera_hourly (camera_id, hour_bucket, vehicle_count, avg_speed, "
                 "  unique_vehicles) VALUES (?,?,?,?,?) "
                 "ON CONFLICT(camera_id, hour_bucket) DO UPDATE SET "
-                "  avg_speed = (COALESCE(avg_speed,0) * vehicle_count + "
+                # Reads of the pre-update row MUST be table-qualified. Postgres
+                # rejects a bare column on the right-hand side of DO UPDATE SET
+                # as ambiguous (it could be the target row or the proposed one);
+                # SQLite accepts it bare. Qualifying is valid on both, and
+                # without it the feeder died on every aggregate refresh —
+                # 60 restarts, with `agg x0` in the heartbeat as the only clue.
+                "  avg_speed = (COALESCE(camera_hourly.avg_speed,0) * camera_hourly.vehicle_count + "
                 "               excluded.avg_speed * excluded.vehicle_count) / "
-                "              (vehicle_count + excluded.vehicle_count), "
-                "  vehicle_count = vehicle_count + excluded.vehicle_count, "
-                "  unique_vehicles = unique_vehicles + excluded.unique_vehicles",
+                "              (camera_hourly.vehicle_count + excluded.vehicle_count), "
+                "  vehicle_count = camera_hourly.vehicle_count + excluded.vehicle_count, "
+                "  unique_vehicles = camera_hourly.unique_vehicles + excluded.unique_vehicles",
                 hourly_rows,
             )
 
@@ -516,10 +522,10 @@ class Feeder:
                 "  first_seen, last_seen, road, latitude, longitude, peak_hour_count, computed_at) "
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?) "
                 "ON CONFLICT(camera_id) DO UPDATE SET "
-                "  avg_speed = (COALESCE(avg_speed,0) * vehicle_count + "
+                "  avg_speed = (COALESCE(camera_totals.avg_speed,0) * camera_totals.vehicle_count + "
                 "               excluded.avg_speed * excluded.vehicle_count) / "
-                "              (vehicle_count + excluded.vehicle_count), "
-                "  vehicle_count = vehicle_count + excluded.vehicle_count, "
+                "              (camera_totals.vehicle_count + excluded.vehicle_count), "
+                "  vehicle_count = camera_totals.vehicle_count + excluded.vehicle_count, "
                 "  last_seen = excluded.last_seen, computed_at = excluded.computed_at",
                 total_rows,
             )
@@ -545,15 +551,15 @@ class Feeder:
                 "  to_road, road_label, mid_latitude, mid_longitude, computed_at) "
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) "
                 "ON CONFLICT(from_camera_id, to_camera_id) DO UPDATE SET "
-                "  avg_travel_minutes = (COALESCE(avg_travel_minutes,0) * trip_count + "
+                "  avg_travel_minutes = (COALESCE(road_usage.avg_travel_minutes,0) * road_usage.trip_count + "
                 "                        excluded.avg_travel_minutes * excluded.trip_count) / "
-                "                       (trip_count + excluded.trip_count), "
-                "  trip_count = trip_count + excluded.trip_count, "
+                "                       (road_usage.trip_count + excluded.trip_count), "
+                "  trip_count = road_usage.trip_count + excluded.trip_count, "
                 "  avg_speed_kmh = excluded.distance_km / "
-                "    (((COALESCE(avg_travel_minutes,0) * trip_count + "
+                "    (((COALESCE(road_usage.avg_travel_minutes,0) * road_usage.trip_count + "
                 "       excluded.avg_travel_minutes * excluded.trip_count) / "
-                "      (trip_count + excluded.trip_count)) / 60.0), "
-                f"  max_speed_kmh = {self.d.greatest}(COALESCE(max_speed_kmh,0), "
+                "      (road_usage.trip_count + excluded.trip_count)) / 60.0), "
+                f"  max_speed_kmh = {self.d.greatest}(COALESCE(road_usage.max_speed_kmh,0), "
                 "                    COALESCE(excluded.max_speed_kmh,0)), "
                 "  computed_at = excluded.computed_at",
                 seg_rows,
