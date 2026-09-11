@@ -104,17 +104,40 @@ class FrameSource(ABC):
 
 
 class VideoFileSource(FrameSource):
-    """Every frame of a video file, in order.
+    """Frames of a video file, in order, optionally every `stride`-th one.
 
     Deliberately not threaded: dropping frames here would discard data, and
     there is no clock to keep up with.
+
+    `stride` is the single largest throughput knob in the pipeline. Detection
+    is ~85% of per-frame cost, so processing one frame in three cuts the work
+    by roughly that factor. It is cheap in accuracy for *this* task because a
+    vehicle spans many frames at 30 fps and `alpr.vote` aggregates per
+    character across a track — a plate is not read once, it is read from every
+    frame the track survives, so thinning those frames removes redundancy
+    before it removes information. It stops being cheap when a vehicle is only
+    ever in frame for a handful of frames (very fast traffic, tight framing),
+    which is why it is a parameter and not a new default baked into the
+    pipeline.
+
+    Skipped frames are advanced with `grab()` rather than `read()`: `grab()`
+    decodes without retrieving, so the colour conversion and the buffer copy
+    into a numpy array — real money at 1080p and 4K — are paid only for frames
+    that are actually processed.
+
+    `index` stays the *true* frame number regardless of stride, so wall-clock
+    timestamps derived from it, and any frame referenced in a log, still point
+    at the right moment in the source video.
     """
 
-    def __init__(self, path: str | Path) -> None:
+    def __init__(self, path: str | Path, *, stride: int = 1) -> None:
         self.path = Path(path)
         if not self.path.exists():
             raise SourceError(f"video not found: {self.path}")
+        if stride < 1:
+            raise SourceError(f"stride must be at least 1, got {stride}")
         self.name = self.path.name
+        self.stride = int(stride)
         self._capture = None
 
     def _open(self):
@@ -155,6 +178,14 @@ class VideoFileSource(FrameSource):
                     break
                 yield Frame(index=index, image=image, timestamp=time.time())
                 index += 1
+
+                # Advance past the frames this stride skips. `grab()` moves the
+                # decoder on without paying for retrieval, and a short read at
+                # the end of the file just ends the run.
+                for _ in range(self.stride - 1):
+                    if not self._capture.grab():
+                        return
+                    index += 1
         finally:
             self.close()
 
@@ -407,7 +438,15 @@ def open_source(spec: str | int | Path, **kwargs) -> FrameSource:
     - an int, or a digit string -> camera index
     - something starting `rtsp://`, `http://` or `https://` -> network stream
     - anything else -> a video file path
+
+    `stride` only means something for a video file — a live source already
+    drops frames to stay current, and a folder of stills has no temporal
+    redundancy to thin — so it is accepted for every spec and dropped for the
+    sources where it would be meaningless. That keeps callers from having to
+    know which kind of source a path will resolve to before they can pass it.
     """
+    stride = kwargs.pop("stride", 1)
+
     if isinstance(spec, int):
         return CameraSource(spec, **kwargs)
 
@@ -426,4 +465,4 @@ def open_source(spec: str | int | Path, **kwargs) -> FrameSource:
     if path.suffix.lower() in IMAGE_EXTENSIONS:
         return ImageSource(path)
 
-    return VideoFileSource(text)
+    return VideoFileSource(text, stride=stride, **kwargs)

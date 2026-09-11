@@ -35,6 +35,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY services/alpr /app/alpr
 RUN pip install --no-cache-dir "/app/alpr[ocr]"
 
+# No ONNX export here on purpose. It was the obvious move and it lost: on
+# arm64 onnxruntime's CPU provider runs this model ~26% slower than torch
+# (see ANPR_PREFER_ONNX in backend/config.py for the numbers). Exporting would
+# add build time and 42 MB to the image for a pessimisation. `alpr.detect
+# .export_onnx` is still there for an x86_64 deployment, where ORT may win —
+# but enable it from a measurement, not from this comment.
+
 # ── Runtime image ────────────────────────────────────────────────────────
 FROM python:3.11-slim
 

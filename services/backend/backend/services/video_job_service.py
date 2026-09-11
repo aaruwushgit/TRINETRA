@@ -278,6 +278,12 @@ class Job:
     min_reads: int = 2
     max_frames: int | None = None
     region: str | None = None
+    # Process one frame in `stride`. See VideoFileSource: detection is ~85% of
+    # per-frame cost, so this is the dominant throughput knob, and it is per
+    # job rather than global because the right value depends on the footage.
+    stride: int = 1
+    # Detector batch size. Accuracy-neutral; see PipelineConfig.batch.
+    batch: int = 1
 
     state: str = JobState.QUEUED
     error: str | None = None
@@ -398,6 +404,8 @@ class Job:
                     "unique_plates": len(self.unique_plates),
                 },
                 "config": {
+                    "stride": self.stride,
+                    "batch": self.batch,
                     "ocr_every": self.ocr_every,
                     "min_reads": self.min_reads,
                     "max_frames": self.max_frames,
@@ -527,6 +535,8 @@ def submit_video_job(
     max_frames: int | None = None,
     region: str | None = None,
     sandbox: bool = False,
+    stride: int = 1,
+    batch: int = 1,
 ) -> str:
     """Queue a video for ANPR + ingestion. Returns the job id immediately."""
     return _submit(
@@ -539,6 +549,8 @@ def submit_video_job(
         max_frames=max_frames,
         region=region,
         sandbox=sandbox,
+        stride=stride,
+        batch=batch,
     )
 
 
@@ -549,6 +561,7 @@ def submit_image_job(
     job_id: str | None = None,
     region: str | None = None,
     sandbox: bool = False,
+    batch: int = 1,
 ) -> str:
     """Queue a still photo (or a directory of photos).
 
@@ -566,6 +579,8 @@ def submit_image_job(
         max_frames=None,
         region=region,
         sandbox=sandbox,
+        stride=1,
+        batch=batch,
     )
 
 
@@ -580,6 +595,8 @@ def _submit(
     max_frames: int | None,
     region: str | None,
     sandbox: bool,
+    stride: int = 1,
+    batch: int = 1,
 ) -> str:
     path = Path(file_path)
     # Validated here, before a job id is handed out: "the file does not exist"
@@ -592,6 +609,10 @@ def _submit(
         raise ValueError(f"ocr_every must be >= 1, got {ocr_every}")
     if max_frames is not None and max_frames < 1:
         raise ValueError(f"max_frames must be >= 1, got {max_frames}")
+    if stride < 1:
+        raise ValueError(f"stride must be >= 1, got {stride}")
+    if batch < 1:
+        raise ValueError(f"batch must be >= 1, got {batch}")
     # Fail fast on a bad region string rather than inside the worker thread.
     _resolve_region(region)
 
@@ -605,6 +626,8 @@ def _submit(
         min_reads=min_reads,
         max_frames=max_frames,
         region=region,
+        stride=stride,
+        batch=batch,
     )
 
     if kind == "video":
@@ -698,12 +721,13 @@ def _run_pipeline(job: Job):
         ocr_every=job.ocr_every,
         min_reads=job.min_reads,
         region=_resolve_region(job.region),
+        batch=job.batch,
     )
     if job.kind == "image":
         config = config.for_stills()
 
     pipeline = anpr_service.build_pipeline(config)
-    source = open_source(job.source_path)
+    source = open_source(job.source_path, stride=job.stride)
 
     def on_frame(frame, detections, tracks, texts) -> bool:
         # Runs once per frame on the hot path, so it does bookkeeping only.

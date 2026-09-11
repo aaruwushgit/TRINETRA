@@ -36,8 +36,13 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse
 
+from backend.config import get_settings
 from backend.services import compute_monitor, dataset_service, video_job_service
 from backend.services.video_job_service import TERMINAL_STATES
+
+# Resolved once: get_settings() is lru_cached, and the throughput defaults are
+# read on every job submission.
+_settings = get_settings()
 
 _rest = APIRouter(prefix="/jobs", tags=["Jobs"])
 
@@ -231,6 +236,8 @@ async def create_video_job(
     max_frames: int | None = Form(default=None),
     region: str | None = Form(default=None),
     sandbox: bool = Form(default=False),
+    stride: int | None = Form(default=None),
+    batch: int | None = Form(default=None),
 ):
     """
     Submit a video for plate detection + database ingestion.
@@ -239,6 +246,15 @@ async def create_video_job(
     video already on the server (much faster for large local footage).
     Returns 202 with a job id — poll GET /jobs/{job_id} or subscribe to
     WS /ws/jobs/{job_id}.
+
+    `batch` is how many frames go to the detector per call — accuracy-neutral,
+    purely fewer dispatches. Omit to use ANPR_BATCH (default 8).
+
+    `stride` processes one frame in N. It is the dominant throughput control:
+    detection is ~85% of per-frame cost, and cross-frame voting means a plate
+    is read from every frame its track survives, so thinning frames removes
+    redundancy well before it removes information. Omit it to use
+    ANPR_STRIDE (default 3). Pass 1 for a frame-exact run.
     """
     if file is None and not source_path:
         raise HTTPException(
@@ -263,6 +279,8 @@ async def create_video_job(
         max_frames=max_frames,
         region=region,
         sandbox=sandbox,
+        stride=_settings.ANPR_STRIDE if stride is None else stride,
+        batch=_settings.ANPR_BATCH if batch is None else batch,
     )
     return {
         "job_id": job_id,

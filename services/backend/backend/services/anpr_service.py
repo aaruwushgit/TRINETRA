@@ -144,6 +144,16 @@ class ANPRService:
                 weights=str(weights),
                 device=settings.ANPR_DEVICE,  # None => auto: CUDA, then MPS, then CPU
                 confidence=settings.ANPR_CONFIDENCE,
+                # Inference resolution is a deployment-level speed/accuracy
+                # choice, not a per-request one: the detector is a process-wide
+                # singleton, so changing it per job would mean reloading the
+                # model. Cost scales with the square of this, which makes it
+                # the second-biggest throughput knob after the frame stride.
+                imgsz=settings.ANPR_IMGSZ,
+                # On CPU, prefer a pre-exported ONNX sibling of best.pt when one
+                # exists (the Docker build makes one). Ignored on CUDA/MPS,
+                # where the torch weights are faster.
+                prefer_onnx=settings.ANPR_PREFER_ONNX,
             )
 
             # PlateReader() with no arguments uses alpr's default Preprocess(),

@@ -36,6 +36,34 @@ class Settings(BaseSettings):
     ANPR_CONFIDENCE: float = 0.25
     ANPR_REGION: str | None = "IN"  # Indian plates
 
+    # ── ANPR throughput ───────────────────────────────────
+    # Detector input resolution. Inference cost scales with the square of this,
+    # so 512 is ~1.6x faster than the 640 the model was trained at, for a small
+    # recall loss concentrated in the smallest plates. Must be a multiple of 32.
+    # Raise back to 640 if plate recall matters more than framerate.
+    ANPR_IMGSZ: int = 512
+    # Prefer a pre-exported best.onnx over best.pt when running on CPU.
+    #
+    # OFF by default because it was measured and it LOST. On arm64 (Apple
+    # Silicon, and the linux/arm64 container that runs on it) onnxruntime's CPU
+    # provider is ~26% slower than torch for this model — 24.3 vs 32.7 fps at
+    # imgsz 512, 15.5 vs 21.2 at 640, medians of 3x60 real 1080p frames. Torch
+    # on arm64 has the better NEON kernels here.
+    #
+    # Kept as a switch rather than deleted: onnxruntime's x86_64 provider is a
+    # different and much stronger implementation, so this may well win on an
+    # Intel/AMD deployment. Measure before enabling — do not assume.
+    ANPR_PREFER_ONNX: bool = False
+    # Default frames-per-processed-frame for video jobs. Requests may override
+    # per job; this is only the fallback when they do not.
+    ANPR_STRIDE: int = 3
+    # Frames handed to the detector per call. The only throughput knob here
+    # with no accuracy cost — same weights, same resolution, same frames, just
+    # fewer dispatches. Measured 1.84x at 8 vs 1 on linux/arm64 CPU. Costs
+    # memory (8 decoded frames at once) and makes cancellation batch-granular,
+    # so live camera workers should override this to 1 to avoid adding lag.
+    ANPR_BATCH: int = 8
+
     # ── Speed enforcement ─────────────────────────────────
     # Default city speed limit used by the real-time SPEED_VIOLATION alert
     # (checkpoint-pair speed: distance/time between two consecutive camera

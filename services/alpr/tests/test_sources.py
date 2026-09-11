@@ -276,3 +276,55 @@ class TestImageSource:
         (tmp_path / "empty").mkdir()
         with pytest.raises(SourceError, match="no images"):
             open_source(str(tmp_path / "empty"))
+
+
+class TestVideoStride:
+    """Striding is the pipeline's main throughput knob, so its contract needs
+    to be exact: fewer frames, but the ones kept must still be truthfully
+    numbered."""
+
+    def test_stride_keeps_every_nth_frame(self, tmp_path):
+        path = write_video(tmp_path / "clip.mp4", frames=12)
+        assert [f.index for f in VideoFileSource(path, stride=3)] == [0, 3, 6, 9]
+
+    def test_indices_remain_true_frame_numbers(self, tmp_path):
+        # Not 0,1,2,3. Timestamps and logged frame references are derived from
+        # this, so renumbering would quietly move events in time.
+        path = write_video(tmp_path / "clip.mp4", frames=10)
+        strided = [f.index for f in VideoFileSource(path, stride=4)]
+        assert strided == [0, 4, 8]
+
+    def test_stride_of_one_is_every_frame(self, tmp_path):
+        path = write_video(tmp_path / "clip.mp4", frames=7)
+        assert [f.index for f in VideoFileSource(path, stride=1)] == list(range(7))
+
+    def test_stride_matches_exact_slicing(self, tmp_path):
+        path = write_video(tmp_path / "clip.mp4", frames=20)
+        full = [f.index for f in VideoFileSource(path)]
+        for stride in (2, 3, 5, 7):
+            got = [f.index for f in VideoFileSource(path, stride=stride)]
+            assert got == full[::stride], f"stride={stride}"
+
+    def test_stride_larger_than_the_video_yields_one_frame(self, tmp_path):
+        path = write_video(tmp_path / "clip.mp4", frames=4)
+        assert [f.index for f in VideoFileSource(path, stride=99)] == [0]
+
+    def test_open_source_forwards_stride(self, tmp_path):
+        path = write_video(tmp_path / "clip.mp4", frames=9)
+        assert [f.index for f in open_source(str(path), stride=3)] == [0, 3, 6]
+
+    def test_stride_is_dropped_for_stills(self, tmp_path):
+        # A folder of photographs has no temporal redundancy to thin, and
+        # ImageSource takes no stride — passing one must not blow up.
+        (tmp_path / "shots").mkdir()
+        import cv2
+
+        for name in ("a.jpg", "b.jpg"):
+            cv2.imwrite(str(tmp_path / "shots" / name), np.zeros((40, 60, 3), np.uint8))
+        source = open_source(str(tmp_path / "shots"), stride=3)
+        assert len(list(source)) == 2
+
+    def test_rejects_a_nonsense_stride(self, tmp_path):
+        path = write_video(tmp_path / "clip.mp4", frames=3)
+        with pytest.raises(SourceError, match="stride must be at least 1"):
+            VideoFileSource(path, stride=0)

@@ -268,3 +268,100 @@ class TestStillImages:
         )
         stats = pipeline.run(FakeSource(3), tmp_path / "log.xlsx")
         assert stats.tracks_completed == 1
+
+
+class BatchAwareDetector(FakeDetector):
+    """A FakeDetector that also implements the batch API.
+
+    Records the sizes it was handed, so a test can assert the pipeline really
+    batched rather than merely producing the right answer by looping.
+    """
+
+    def __init__(self, visible_for: int = 8) -> None:
+        super().__init__(visible_for)
+        self.batch_sizes: list[int] = []
+
+    def detect_batch(self, images, **kwargs):
+        self.batch_sizes.append(len(images))
+        return [self.detect(image, **kwargs) for image in images]
+
+
+class TestBatchedDetection:
+    """Batching is an optimisation, so its defining property is that it
+    changes throughput and nothing else."""
+
+    def _run(self, tmp_path, *, batch, detector=None):
+        detector = detector or BatchAwareDetector()
+        config = PipelineConfig(min_hits=2, max_age=3, ocr_every=1, batch=batch)
+        pipeline = Pipeline(detector, FakeReader(["MH12AB1234"]), config)
+        out = tmp_path / f"log_b{batch}.xlsx"
+        stats = pipeline.run(FakeSource(20), out)
+        return stats, (read_workbook(out) if out.exists() else []), detector
+
+    def test_batching_does_not_change_the_result(self, tmp_path):
+        one, rows_one, _ = self._run(tmp_path, batch=1)
+        eight, rows_eight, _ = self._run(tmp_path, batch=8)
+
+        # The whole point: same frames, same detections, same plates.
+        assert one.frames == eight.frames
+        assert one.detections == eight.detections
+        assert one.logged == eight.logged
+        assert [r["Plate"] for r in rows_one] == [r["Plate"] for r in rows_eight]
+
+    def test_frames_are_still_delivered_in_order(self, tmp_path):
+        # Tracking is stateful across frames, so out-of-order delivery would
+        # corrupt tracks while still producing a plausible-looking count.
+        seen: list[int] = []
+        detector = BatchAwareDetector()
+        pipeline = Pipeline(
+            detector,
+            FakeReader(["MH12AB1234"]),
+            PipelineConfig(min_hits=2, max_age=3, ocr_every=1, batch=4),
+        )
+        pipeline.run(
+            FakeSource(13),
+            tmp_path / "log.xlsx",
+            on_frame=lambda frame, d, t, x: seen.append(frame.index) is None,
+        )
+        assert seen == sorted(seen) == list(range(13))
+
+    def test_it_actually_batches(self, tmp_path):
+        _, _, detector = self._run(tmp_path, batch=4)
+        # 20 frames at batch 4 => five full batches, no per-frame fallback.
+        assert detector.batch_sizes == [4, 4, 4, 4, 4]
+
+    def test_a_ragged_final_batch_is_still_processed(self, tmp_path):
+        detector = BatchAwareDetector()
+        pipeline = Pipeline(
+            detector,
+            FakeReader(["MH12AB1234"]),
+            PipelineConfig(min_hits=2, max_age=3, ocr_every=1, batch=8),
+        )
+        stats = pipeline.run(FakeSource(20), tmp_path / "log.xlsx")
+        # 20 = 8 + 8 + 4: the remainder must not be silently dropped.
+        assert stats.frames == 20
+        assert detector.batch_sizes == [8, 8, 4]
+
+    def test_a_detector_without_detect_batch_still_works(self, tmp_path):
+        # FakeDetector has no detect_batch. Batching must degrade to looping
+        # rather than raising, so any detector stays usable.
+        stats, rows, _ = self._run(tmp_path, batch=8, detector=FakeDetector())
+        assert stats.frames == 20
+        assert rows[0]["Plate"] == "MH12AB1234"
+
+    def test_max_frames_caps_intake_not_just_output(self, tmp_path):
+        detector = BatchAwareDetector()
+        pipeline = Pipeline(
+            detector,
+            FakeReader(["MH12AB1234"]),
+            PipelineConfig(min_hits=2, max_age=3, ocr_every=1, batch=8),
+        )
+        stats = pipeline.run(FakeSource(50), tmp_path / "log.xlsx", max_frames=10)
+        assert stats.frames == 10
+        # Nothing beyond the cap should have been detected at all — a capped
+        # run must not pay for frames it discards.
+        assert sum(detector.batch_sizes) == 10
+
+    def test_rejects_a_nonsense_batch_size(self):
+        with pytest.raises(ValueError, match="batch must be at least 1"):
+            PipelineConfig(batch=0)

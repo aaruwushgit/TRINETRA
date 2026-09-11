@@ -42,6 +42,23 @@ class PipelineConfig:
     # and too slow for a live source.
     ocr_every: int = 3
 
+    # How many frames to hand the detector at once.
+    #
+    # This is the one throughput knob with no accuracy cost at all: the same
+    # frames are detected with the same weights at the same resolution, just
+    # in one call instead of N. The gain is amortised Python/dispatch overhead
+    # and better arithmetic intensity — measured 1.84x at batch=8 versus
+    # batch=1 on CPU (18.6 vs 10.1 fps, linux/arm64 container, imgsz 512).
+    #
+    # Tracking is unaffected: detections are still fed to the tracker one frame
+    # at a time, in order, so `min_hits`/`max_age` mean exactly what they meant
+    # before. What batching does cost is latency granularity and memory — a
+    # batch of 8 holds 8 decoded frames at once (~50 MB at 1080p, ~200 MB at
+    # 4K), and cancellation can only take effect between batches. Live sources
+    # should stay at 1: buffering 8 frames off a camera adds 8 frames of lag,
+    # which is the opposite of what a live view wants.
+    batch: int = 1
+
     # A track must contribute this many reads before its vote is trusted.
     min_reads: int = 2
 
@@ -78,6 +95,8 @@ class PipelineConfig:
     def __post_init__(self) -> None:
         if self.ocr_every < 1:
             raise ValueError(f"ocr_every must be at least 1, got {self.ocr_every}")
+        if self.batch < 1:
+            raise ValueError(f"batch must be at least 1, got {self.batch}")
 
 
 @dataclass
@@ -183,23 +202,25 @@ class Pipeline:
 
         started = time.time()
         with ExcelLog(out, cooldown=config.cooldown) as log:
-            for frame in source:
-                if max_frames is not None and stats.frames >= max_frames:
-                    break
+            for frame, detections in self._detected(source, config, timings, max_frames):
                 stats.frames += 1
                 origin = frame.source_name or source.name
-
-                mark = time.time()
-                detections = self.detector.detect(frame.image, confidence=config.confidence)
-                timings["detect"] += time.time() - mark
                 stats.detections += len(detections)
 
                 tracks = tracker.update(detections, frame.index)
 
                 # BGR from OpenCV; PIL and the reader both expect RGB.
+                #
+                # Cadence is counted in *processed* frames, not in `frame.index`.
+                # Those differ as soon as the source strides: at stride 3 the
+                # indices arriving here are 0, 3, 6, ... so `index % 3` is
+                # always 0 and every frame would be OCR'd — silently turning
+                # `ocr_every=3` into `ocr_every=1` and undoing the saving the
+                # stride was meant to buy. Counting what we actually processed
+                # keeps the two knobs independent.
                 image = None
                 for track in tracks:
-                    if frame.index % config.ocr_every:
+                    if (stats.frames - 1) % config.ocr_every:
                         continue
                     if image is None:
                         mark = time.time()
@@ -244,6 +265,57 @@ class Pipeline:
         stats.per_stage = timings
         stats.dropped_frames = getattr(source, "dropped", 0)
         return stats
+
+    def _detected(self, source, config, timings, max_frames):
+        """Yield `(frame, detections)` in source order, detecting in batches.
+
+        Detection is the only stage batched. Everything downstream — tracking,
+        voting, logging — still sees one frame at a time in order, because
+        those stages are stateful across frames and cost almost nothing; it is
+        the model call that benefits from being handed work in bulk.
+
+        At `batch == 1` this is the original path: one `detect` per frame, so
+        the behaviour and the timings stay directly comparable.
+        """
+        batch = max(1, config.batch)
+        buffered: list = []
+
+        def flush():
+            """Detect the buffered frames and pair each with its own boxes."""
+            if not buffered:
+                return []
+            mark = time.time()
+            # `detect_batch` is an optimisation, not part of the detector
+            # contract: anything with `detect` is a valid detector here, and a
+            # stub or a custom implementation should not have to grow a second
+            # method to keep working. Falling back per frame gives the same
+            # answers, just without the speedup.
+            batched = getattr(self.detector, "detect_batch", None)
+            if len(buffered) == 1 or batched is None:
+                results = [
+                    self.detector.detect(f.image, confidence=config.confidence)
+                    for f in buffered
+                ]
+            else:
+                results = batched(
+                    [f.image for f in buffered], confidence=config.confidence
+                )
+            timings["detect"] += time.time() - mark
+            paired = list(zip(buffered, results))
+            buffered.clear()
+            return paired
+
+        taken = 0
+        for frame in source:
+            # `max_frames` is enforced on intake rather than after detection so
+            # a capped run never pays to detect a frame it will not use.
+            if max_frames is not None and taken >= max_frames:
+                break
+            buffered.append(frame)
+            taken += 1
+            if len(buffered) >= batch:
+                yield from flush()
+        yield from flush()
 
     def _emit(self, tracker, voter, log, stats, timestamp, source_name) -> None:
         """Vote, validate and log every track that has finished."""

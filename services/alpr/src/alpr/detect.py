@@ -76,6 +76,83 @@ def iou(a: Sequence[float], b: Sequence[float]) -> float:
     return intersection / union if union > 0 else 0.0
 
 
+def configure_cpu_threads(threads: int | None = None) -> int | None:
+    """Pin torch's intra-op thread count for CPU inference.
+
+    Left alone, torch sizes its pool from the *host's* logical CPU count, which
+    inside a container is not the same as the share the container is allowed to
+    use. Oversubscribing costs real throughput: the threads contend, and the
+    per-frame latency that matters here gets worse rather than better.
+
+    Returns the value applied, or None when torch is unavailable or a device
+    other than CPU is in use (where this setting is irrelevant).
+    """
+    try:
+        import torch
+    except ImportError:  # pragma: no cover - torch is a hard dependency
+        return None
+
+    if threads is None:
+        import os
+
+        # `sched_getaffinity` is the cgroup-aware answer where it exists;
+        # cpu_count() is the host-wide one and only a fallback.
+        try:
+            threads = len(os.sched_getaffinity(0))
+        except AttributeError:  # pragma: no cover - macOS has no affinity API
+            threads = os.cpu_count() or 1
+
+    threads = max(1, int(threads))
+    torch.set_num_threads(threads)
+    return threads
+
+
+def onnx_sibling(weights: str | Path) -> Path | None:
+    """The exported ONNX next to a `.pt`, if it has been built.
+
+    Ultralytics dispatches on file extension, so handing `YOLO` a `.onnx` runs
+    it through onnxruntime instead of torch — materially faster on CPU for this
+    model, and the reason the Docker build exports one at image-build time so
+    the first request does not pay for it.
+    """
+    path = Path(weights)
+    if path.suffix == ".onnx":
+        return path
+    candidate = path.with_suffix(".onnx")
+    return candidate if candidate.exists() else None
+
+
+def export_onnx(weights: str | Path, *, imgsz: int = 640, force: bool = False) -> Path:
+    """Export `.pt` weights to ONNX, returning the resulting path.
+
+    Idempotent: an existing export is reused unless `force`. Raises
+    DetectionError with the underlying message on failure, because a broken
+    export must not silently fall back to a slower path that then looks like a
+    mysterious performance regression.
+    """
+    source = Path(weights)
+    if source.suffix == ".onnx":
+        return source
+    target = source.with_suffix(".onnx")
+    if target.exists() and not force:
+        return target
+
+    try:
+        from ultralytics import YOLO
+
+        # dynamic=True so the export is not welded to one input size. A fixed
+        # export is marginally faster to optimise, but it silently disagrees
+        # with any caller using a different imgsz — and ANPR_IMGSZ is a knob we
+        # expect to be turned. Correctness over the last few percent.
+        YOLO(str(source)).export(format="onnx", imgsz=imgsz, simplify=True, dynamic=True)
+    except Exception as err:  # noqa: BLE001 - surfaced with context below
+        raise DetectionError(f"ONNX export of {source} failed: {err}") from err
+
+    if not target.exists():
+        raise DetectionError(f"ONNX export of {source} reported success but {target} is missing")
+    return target
+
+
 def select_device(preference: str | None = None) -> str:
     """Pick the fastest available device.
 
@@ -109,6 +186,7 @@ class PlateDetector:
         confidence: float = DEFAULT_CONFIDENCE,
         iou_threshold: float = DEFAULT_IOU,
         imgsz: int = 640,
+        prefer_onnx: bool = True,
     ) -> None:
         self.weights = Path(weights)
         if not self.weights.exists():
@@ -123,7 +201,24 @@ class PlateDetector:
         self.confidence = confidence
         self.iou_threshold = iou_threshold
         self.imgsz = imgsz
+        self.prefer_onnx = prefer_onnx
         self._model: Any | None = None
+
+    @property
+    def runtime_weights(self) -> Path:
+        """The file actually handed to Ultralytics.
+
+        Prefers a pre-built ONNX sibling on CPU, where it is the faster
+        runtime. On CUDA and MPS the torch weights win, so the `.onnx` is
+        ignored there even when present — this is a CPU optimisation, not a
+        universal one, and quietly using it on a GPU would make the GPU path
+        slower.
+        """
+        if self.prefer_onnx and self.device == "cpu":
+            sibling = onnx_sibling(self.weights)
+            if sibling is not None:
+                return sibling
+        return self.weights
 
     @property
     def model(self):
@@ -135,7 +230,9 @@ class PlateDetector:
         if self._model is None:
             from ultralytics import YOLO
 
-            self._model = YOLO(str(self.weights))
+            if self.device == "cpu":
+                configure_cpu_threads()
+            self._model = YOLO(str(self.runtime_weights))
         return self._model
 
     def detect(self, image: Any, **kwargs) -> list[Detection]:
