@@ -7,6 +7,41 @@ services:
   postgres:
     image: postgis/postgis:15-3.3
     container_name: vehicle_postgres
+    # Tuned for bulk loading a year of history. The image defaults
+    # (shared_buffers 128MB, max_wal_size 1GB, work_mem 4MB) are sized for a
+    # small container and killed the backend mid-COPY: a 40M-row load emitted
+    # ~900MB of WAL inside one checkpoint interval, right at max_wal_size,
+    # with nothing able to recycle it.
+    #
+    # The VM has 7.75GB and steady-state use is ~2GB, so this is affordable.
+    command:
+      - postgres
+      # Cache. 1GB is ~13% of the VM, the usual starting point.
+      - -c
+      - shared_buffers=1GB
+      - -c
+      - effective_cache_size=3GB
+      # Sorts and hashes. The road_usage rollup runs
+      # LAG() OVER (PARTITION BY plate) across the whole table; at 4MB this
+      # spills to disk on every partition.
+      - -c
+      - work_mem=64MB
+      # CREATE INDEX on 40M rows.
+      - -c
+      - maintenance_work_mem=512MB
+      # Let WAL grow between checkpoints instead of forcing one every ~900MB
+      # mid-load. This is the setting that actually caused the crash.
+      - -c
+      - max_wal_size=4GB
+      - -c
+      - min_wal_size=512MB
+      - -c
+      - checkpoint_timeout=15min
+      - -c
+      - checkpoint_completion_target=0.9
+      # Bulk COPY is single-threaded; give the rollups some parallelism.
+      - -c
+      - max_parallel_workers_per_gather=2
     environment:
       POSTGRES_DB: vehicle_intelligence
       POSTGRES_USER: postgres

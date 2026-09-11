@@ -134,6 +134,7 @@ class Feeder:
             self.db_url,
             connect_args={"check_same_thread": False} if "sqlite" in self.db_url else {},
         )
+        self.d = gen.Dialect(self.engine)
         Base.metadata.create_all(bind=self.engine)
 
         self.net = self._load_network()
@@ -184,11 +185,13 @@ class Feeder:
         feeder emits satisfies the vehicle_events foreign key.
         """
         raw, conn = gen.open_raw(self.engine)
-        rows = conn.cursor().execute(
+        rows = gen.cursor(conn, self.d.ph).execute(
             "SELECT camera_id, name, location, latitude, longitude, road, direction, "
             "       camera_type, deployment, speed_limit_kmh FROM cameras "
-            "WHERE is_active = 1 AND deployment = ? ORDER BY camera_id",
-            (gen.DEPLOYMENT_TAG,),
+            # `is_active` is a real boolean on Postgres, where `= 1` is a type
+            # error; Dialect.true yields True there and 1 on SQLite.
+            "WHERE is_active = ? AND deployment = ? ORDER BY camera_id",
+            (self.d.true, gen.DEPLOYMENT_TAG),
         ).fetchall()
         raw.close()
         if not rows:
@@ -215,8 +218,9 @@ class Feeder:
         even against 12M rows — a SELECT DISTINCT plate would be a full scan.
         """
         raw, conn = gen.open_raw(self.engine)
-        cur = conn.cursor()
-        cur.execute("PRAGMA cache_size=-100000")
+        cur = gen.cursor(conn, self.d.ph)
+        if not self.d.pg:
+            cur.execute("PRAGMA cache_size=-100000")
         rows = cur.execute(
             "SELECT plate, global_vehicle_id, vehicle_type, vehicle_color, camera_id "
             "FROM vehicle_events WHERE plate IS NOT NULL "
@@ -549,7 +553,8 @@ class Feeder:
                 "    (((COALESCE(avg_travel_minutes,0) * trip_count + "
                 "       excluded.avg_travel_minutes * excluded.trip_count) / "
                 "      (trip_count + excluded.trip_count)) / 60.0), "
-                "  max_speed_kmh = MAX(COALESCE(max_speed_kmh,0), COALESCE(excluded.max_speed_kmh,0)), "
+                f"  max_speed_kmh = {self.d.greatest}(COALESCE(max_speed_kmh,0), "
+                "                    COALESCE(excluded.max_speed_kmh,0)), "
                 "  computed_at = excluded.computed_at",
                 seg_rows,
             )
@@ -596,10 +601,17 @@ class Feeder:
         self.SessionLocal = SessionLocal
 
         raw, conn = gen.open_raw(self.engine)
-        self.raw, self.cur = raw, conn.cursor()
-        self.cur.execute("PRAGMA journal_mode=WAL")
-        self.cur.execute("PRAGMA synchronous=NORMAL")   # a live feed can afford a fsync per commit
-        self.cur.execute("PRAGMA busy_timeout=10000")   # the API may be reading concurrently
+        self.raw, self.cur = raw, gen.cursor(conn, self.d.ph)
+        if self.d.pg:
+            # journal_mode has no Postgres analogue. synchronous_commit=off is
+            # the equivalent trade for a feed whose data is regenerable, and
+            # lock_timeout replaces busy_timeout — the API reads concurrently.
+            self.cur.execute("SET synchronous_commit = off")
+            self.cur.execute("SET lock_timeout = '10s'")
+        else:
+            self.cur.execute("PRAGMA journal_mode=WAL")
+            self.cur.execute("PRAGMA synchronous=NORMAL")   # a live feed can afford a fsync per commit
+            self.cur.execute("PRAGMA busy_timeout=10000")   # the API may be reading concurrently
         self.batch: list[tuple] = []
         self.api_queue: list[dict] = []
 

@@ -79,6 +79,12 @@ def load_generator():
     return module
 
 
+FUTURE_COLUMNS = (
+    "camera_id", "local_track_id", "timestamp", "plate", "plate_confidence",
+    "latitude", "longitude", "direction", "vehicle_type", "vehicle_color",
+    "speed", "global_vehicle_id", "batch",
+)
+
 INSERT_FUTURE_SQL = (
     "INSERT INTO future_events "
     "(camera_id, local_track_id, timestamp, plate, plate_confidence, "
@@ -97,15 +103,19 @@ def recent_plates(engine, limit: int, days: int = 7) -> list[tuple[str, str | No
     keeps its identity across the boundary.
     """
     since = (datetime.now(timezone.utc) - timedelta(days=days)).replace(tzinfo=None)
+    d = gen.Dialect(engine)
     sql = (
         "SELECT plate, MAX(global_vehicle_id) FROM vehicle_events "
-        "WHERE timestamp >= ? AND plate IS NOT NULL "
-        "GROUP BY plate LIMIT ?"
+        f"WHERE timestamp >= {d.ph} AND plate IS NOT NULL "
+        f"GROUP BY plate LIMIT {d.ph}"
     )
     raw = engine.raw_connection()
     try:
         cur = raw.cursor()
-        cur.execute(sql, (since.strftime("%Y-%m-%d %H:%M:%S.%f"), limit))
+        # A real datetime rather than a formatted string: psycopg2 adapts it to
+        # `timestamp` directly, where an untyped string relies on server-side
+        # coercion.
+        cur.execute(sql, (since, limit))
         rows = [(r[0], r[1]) for r in cur.fetchall()]
         cur.close()
     finally:
@@ -241,10 +251,10 @@ def main() -> None:
     sim = gen.Simulator(net, args.days, end_epoch, rng, trip_scale=trip_scale)
     rows = gen.iter_rows(vehicles, sim, net, start_epoch, end_epoch)
 
+    d = gen.Dialect(engine)
     raw, conn = gen.open_raw(engine)
-    cur = conn.cursor()
-    cur.execute("PRAGMA journal_mode=WAL")
-    cur.execute("PRAGMA synchronous=OFF")
+    cur = gen.cursor(conn)
+    gen.tune_for_load(cur, d)
 
     # Drop the indexes for the load and rebuild them after. Same reasoning as
     # the history loader: rebuilding two B-trees once beats 1.5M incremental
@@ -255,26 +265,52 @@ def main() -> None:
 
     total = 0
     t0 = time.perf_counter()
-    batch_rows: list[tuple] = []
     try:
-        cur.execute("BEGIN")
-        for row in rows:
-            # iter_rows yields the 14-tuple the history loader wants:
-            #   (event_id, camera_id, track, ts, plate, conf, lat, lon, dir,
-            #    vtype, color, speed, gid, created_at)
-            # future_events has no event_id (it gets one when promoted) and no
-            # created_at, so drop the first and last and append the batch tag.
-            batch_rows.append(row[1:13] + (batch,))
-            if len(batch_rows) >= args.batch_size:
+        # iter_rows yields the 14-tuple the history loader wants:
+        #   (event_id, camera_id, track, ts, plate, conf, lat, lon, dir,
+        #    vtype, color, speed, gid, created_at)
+        # future_events has no event_id (it gets one when promoted) and no
+        # created_at, so drop the first and last and append the batch tag.
+        def future_rows():
+            for row in rows:
+                yield row[1:13] + (batch,)
+
+        if d.pg:
+            # Same reasoning as the history loader: COPY rather than
+            # executemany, chunked into bounded transactions so WAL can be
+            # recycled between chunks instead of growing past max_wal_size.
+            copy_sql = (
+                f"COPY future_events ({', '.join(FUTURE_COLUMNS)}) "
+                "FROM STDIN WITH (FORMAT csv)"
+            )
+            shared = future_rows()
+            while True:
+                stream = gen._CopyStream(
+                    shared,
+                    created_at="",           # future_events has no created_at
+                    max_rows=gen.COPY_CHUNK_ROWS,
+                    start_count=total,
+                    columns=len(FUTURE_COLUMNS),
+                )
+                cur.copy_expert(copy_sql, stream)
+                total = stream.count
+                if stream.source_exhausted:
+                    break
+        else:
+            batch_rows: list[tuple] = []
+            cur.execute("BEGIN")
+            for staged in future_rows():
+                batch_rows.append(staged)
+                if len(batch_rows) >= args.batch_size:
+                    cur.executemany(INSERT_FUTURE_SQL, batch_rows)
+                    total += len(batch_rows)
+                    batch_rows.clear()
+                    cur.execute("COMMIT")
+                    cur.execute("BEGIN")
+            if batch_rows:
                 cur.executemany(INSERT_FUTURE_SQL, batch_rows)
                 total += len(batch_rows)
-                batch_rows.clear()
-                cur.execute("COMMIT")
-                cur.execute("BEGIN")
-        if batch_rows:
-            cur.executemany(INSERT_FUTURE_SQL, batch_rows)
-            total += len(batch_rows)
-        cur.execute("COMMIT")
+            cur.execute("COMMIT")
 
         print(f"  staged {total:,} events in {time.perf_counter() - t0:.1f}s "
               f"({total / max(time.perf_counter() - t0, 1e-9):,.0f} rows/s)")

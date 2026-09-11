@@ -31,3 +31,10 @@ bcrypt>=4.0.0
 # hand-written haversine, so PostGIS types are not used yet even though the
 # image provides them.
 psycopg2-binary>=2.9.9
+
+# ── Pattern mining ─────────────────────────────────────────────
+# DBSCAN for discovering the places a vehicle frequents (k is unknown and is
+# the thing we want found, which rules out k-means) and IsolationForest for
+# per-vehicle anomaly detection on an unlabelled history of a few hundred
+# rows. numpy is already present via ultralytics; scipy comes with sklearn.
+scikit-learn>=1.5.0

@@ -81,6 +81,81 @@ TRANSITION_SAMPLE = 300_000
 # happen to be; n/(n+PRIOR) is the standard way to say so.
 CONFIDENCE_PRIOR = 20.0
 
+def _dialect():
+    """(placeholder, is_postgres) for the configured database.
+
+    The clock talks to the raw DBAPI for speed — promotion is a hot loop — so
+    it cannot lean on SQLAlchemy's parameter translation and has to know which
+    driver it is holding. Kept as a function rather than a constant because
+    `backend.database.engine` is created at import time of that module, not
+    this one.
+    """
+    from backend.database import engine
+
+    pg = engine.dialect.name.startswith("postgres")
+    return ("%s" if pg else "?"), pg
+
+
+class _Cur:
+    """Raw-DBAPI cursor wrapper that makes this module driver-agnostic.
+
+    Two differences it hides, both of which silently broke the clock on
+    Postgres:
+
+    * `?` vs `%s` placeholders. Every statement here is written in the sqlite3
+      style and rendered on the way through.
+    * `execute()` returns the cursor on sqlite3 and None on psycopg2. The clock
+      chains `.fetchone()` / `.rowcount` off execute in six places, so
+      wrapping is one change instead of six — and the failure mode without it
+      is an AttributeError inside a bare `except` that returns None.
+    """
+
+    def __init__(self, cur, placeholder: str) -> None:
+        self._c = cur
+        self._ph = placeholder
+
+    def _render(self, sql: str) -> str:
+        return sql if self._ph == "?" else sql.replace("?", self._ph)
+
+    def execute(self, sql: str, params=None) -> "_Cur":
+        if params is None:
+            self._c.execute(self._render(sql))
+        else:
+            self._c.execute(self._render(sql), params)
+        return self
+
+    def executemany(self, sql: str, seq) -> "_Cur":
+        self._c.executemany(self._render(sql), seq)
+        return self
+
+    def fetchone(self):
+        return self._c.fetchone()
+
+    def fetchall(self):
+        return self._c.fetchall()
+
+    @property
+    def rowcount(self) -> int:
+        return self._c.rowcount
+
+    def close(self) -> None:
+        self._c.close()
+
+
+def _open(engine_or_raw=None):
+    """(raw_connection, wrapped_cursor) in autocommit, for either driver."""
+    from backend.database import engine
+
+    raw = engine.raw_connection()
+    dbapi = raw.driver_connection
+    if hasattr(dbapi, "autocommit"):
+        dbapi.autocommit = True          # psycopg2
+    else:
+        dbapi.isolation_level = None     # sqlite3
+    ph, _ = _dialect()
+    return raw, _Cur(dbapi.cursor(), ph)
+
+
 INSERT_EVENT_SQL = (
     "INSERT INTO vehicle_events "
     "(event_id, camera_id, local_track_id, timestamp, plate, plate_confidence, "
@@ -323,7 +398,7 @@ class SimulationClock:
         try:
             raw = engine.raw_connection()
             try:
-                cur = raw.driver_connection.cursor()
+                cur = _Cur(raw.driver_connection.cursor(), _dialect()[0])
                 # MIN over the (released_at, timestamp) index — an index probe,
                 # not a scan of the staged month.
                 row = cur.execute(
@@ -448,16 +523,32 @@ class SimulationClock:
         raw = engine.raw_connection()
         try:
             dbapi = raw.driver_connection
-            dbapi.isolation_level = None
-            cur = dbapi.cursor()
-            cur.execute("PRAGMA busy_timeout=8000")
+            # psycopg2 spells autocommit differently, and `isolation_level =
+            # None` on it means "server default" rather than autocommit — which
+            # left the explicit BEGIN below opening a nested transaction.
+            if hasattr(dbapi, "autocommit"):
+                dbapi.autocommit = True
+            else:
+                dbapi.isolation_level = None
+            ph, pg = _dialect()
+            cur = _Cur(dbapi.cursor(), ph)
+            if pg:
+                # Postgres equivalent of busy_timeout. PRAGMA is a syntax error
+                # here, and because _run swallows every tick exception that
+                # failure used to loop silently forever, incrementing
+                # counters.errors and never promoting a single row.
+                cur.execute("SET lock_timeout = '8s'")
+            else:
+                cur.execute("PRAGMA busy_timeout=8000")
+
             cur.execute(SELECT_DUE_SQL, (cutoff, MAX_PROMOTE_PER_TICK))
             due = cur.fetchall()
 
             if not due:
-                remaining = cur.execute(
+                cur.execute(
                     "SELECT COUNT(*) FROM future_events WHERE released_at IS NULL"
-                ).fetchone()[0]
+                )
+                remaining = cur.fetchone()[0]
                 with self._lock:
                     self.counters.backlog_at_last_tick = 0
                     if remaining == 0 and self.state == self.RUNNING:
@@ -610,7 +701,7 @@ class SimulationClock:
         t0 = time.perf_counter()
         raw = engine.raw_connection()
         try:
-            cur = raw.driver_connection.cursor()
+            cur = _Cur(raw.driver_connection.cursor(), _dialect()[0])
             cur.execute(
                 "SELECT global_vehicle_id, camera_id, timestamp FROM vehicle_events "
                 "WHERE global_vehicle_id IS NOT NULL "
@@ -954,7 +1045,7 @@ class SimulationClock:
         now = self.sim_time
         raw = engine.raw_connection()
         try:
-            cur = raw.driver_connection.cursor()
+            cur = _Cur(raw.driver_connection.cursor(), _dialect()[0])
             total, first, last = cur.execute(
                 "SELECT COUNT(*), MIN(timestamp), MAX(timestamp) FROM future_events "
                 "WHERE released_at IS NULL"
@@ -994,9 +1085,16 @@ class SimulationClock:
         raw = engine.raw_connection()
         try:
             dbapi = raw.driver_connection
-            dbapi.isolation_level = None
-            cur = dbapi.cursor()
-            cur.execute("PRAGMA busy_timeout=15000")
+            if hasattr(dbapi, "autocommit"):
+                dbapi.autocommit = True
+            else:
+                dbapi.isolation_level = None
+            ph, pg = _dialect()
+            cur = _Cur(dbapi.cursor(), ph)
+            if pg:
+                cur.execute("SET lock_timeout = '15s'")
+            else:
+                cur.execute("PRAGMA busy_timeout=15000")
             cur.execute("BEGIN")
             deleted = cur.execute(
                 "DELETE FROM vehicle_events WHERE timestamp > ?", (stamp,)

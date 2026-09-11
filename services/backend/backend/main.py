@@ -68,6 +68,10 @@ OPTIONAL_ROUTERS = [
     ("backend.api.routing", "Road-network snapped trajectories"),
     ("backend.api.benchmarks", "Compute benchmarks & scalability projections"),
     ("backend.api.simulation", "Timeline clock: staged future -> live ingestion"),
+    # Optional because it is the only feature that hard-depends on
+    # scikit-learn; a missing wheel degrades this one endpoint group rather
+    # than the API.
+    ("backend.api.patterns", "Behavioural patterns: inferred home/work + anomalies"),
 ]
 
 FEATURE_STATUS: dict[str, str] = {}

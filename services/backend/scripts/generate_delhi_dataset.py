@@ -949,6 +949,16 @@ class Dialect:
             return f"EXTRACT(HOUR FROM {col})::int"
         return f"CAST(strftime('%H', {col}) AS INTEGER)"
 
+    @property
+    def greatest(self) -> str:
+        """Scalar max-of-two-values.
+
+        SQLite overloads `MAX(a, b)` as a scalar function; in Postgres `MAX` is
+        strictly an aggregate and the two-argument form is a syntax error. The
+        portable-ish spelling differs, so callers ask for it by name.
+        """
+        return "GREATEST" if self.pg else "MAX"
+
     def hour_bucket(self, col: str) -> str:
         """Truncate a timestamp to the hour.
 
@@ -1012,14 +1022,31 @@ class _CopyStream(io.RawIOBase):
     flat whether the run is 10M rows or 200M.
     """
 
-    def __init__(self, rows, created_at: str, on_progress=None, every: int = 1_000_000) -> None:
-        self._rows = iter(rows)
+    def __init__(
+        self,
+        rows,
+        created_at: str,
+        on_progress=None,
+        every: int = 1_000_000,
+        max_rows: int | None = None,
+        start_count: int = 0,
+        columns: int = 14,
+    ) -> None:
+        self._rows = rows                  # a shared iterator across chunks
         self._created_at = created_at
         self._buf = ""
         self._done = False
-        self.count = 0
+        self._emitted = 0                  # rows in THIS chunk
+        self._max_rows = max_rows
+        self.count = start_count           # rows across all chunks so far
+        self.source_exhausted = False
         self._on_progress = on_progress
         self._every = every
+        # vehicle_events takes 13 generated fields plus a constant created_at;
+        # future_events takes the same 13 with a batch tag already appended and
+        # no created_at. `columns` is how many the destination table expects.
+        self._columns = columns
+        self._append_created_at = columns == 14
 
     def readable(self) -> bool:
         return True
@@ -1038,17 +1065,27 @@ class _CopyStream(io.RawIOBase):
     def readinto(self, target) -> int:
         want = len(target)
         while len(self._buf) < want and not self._done:
+            if self._max_rows is not None and self._emitted >= self._max_rows:
+                # Chunk full. The source is NOT exhausted, so the caller issues
+                # another COPY starting where this one stopped.
+                self._done = True
+                break
             try:
                 row = next(self._rows)
             except StopIteration:
                 self._done = True
+                self.source_exhausted = True
                 break
+            self._emitted += 1
             self.count += 1
             if self._on_progress and self.count % self._every == 0:
                 self._on_progress(self.count)
-            self._buf += ",".join(
-                self._field(v) for v in (row[:13] + (self._created_at,))
-            ) + "\n"
+            values = (
+                row[:13] + (self._created_at,)
+                if self._append_created_at
+                else row[: self._columns]
+            )
+            self._buf += ",".join(self._field(v) for v in values) + "\n"
 
         if not self._buf:
             return 0
@@ -1069,10 +1106,15 @@ EVENT_COLUMNS = (
 # one: it lets COPY stop waiting on fsync per transaction. A crash mid-load just
 # means re-running the generator, which is the same trade as
 # `PRAGMA synchronous=OFF` below.
+# Rows per COPY transaction. Sized so the WAL one chunk generates stays well
+# inside max_wal_size, which is what makes checkpoints able to recycle it.
+COPY_CHUNK_ROWS = 2_000_000
+
 PG_LOAD_SETTINGS = (
+    # Per-session only. shared_buffers/max_wal_size/work_mem are set on the
+    # server in docker-compose.yml, because they are not per-session settings
+    # and the previous attempt to raise them here silently did nothing for WAL.
     "SET synchronous_commit = off",
-    "SET maintenance_work_mem = '512MB'",
-    "SET work_mem = '128MB'",
 )
 
 LOAD_PRAGMAS = (
@@ -1114,15 +1156,29 @@ class Cur:
     eighteen, and it keeps those call sites readable.
     """
 
-    def __init__(self, cur) -> None:
+    def __init__(self, cur, placeholder: str = "?") -> None:
         self._c = cur
+        self._ph = placeholder
 
-    def execute(self, *args, **kwargs) -> "Cur":
-        self._c.execute(*args, **kwargs)
+    def _render(self, sql):
+        """Rewrite `?` placeholders for the active driver.
+
+        Every statement in this codebase is written in the sqlite3 `?` style.
+        Rendering them here means callers — including scripts/live_event_feeder
+        and scripts/generate_future_dataset — need no per-statement changes to
+        run on Postgres. Verified there are no literal `?` characters inside
+        any SQL string content, so a blanket replace is safe.
+        """
+        if self._ph == "?" or not isinstance(sql, str):
+            return sql
+        return sql.replace("?", self._ph)
+
+    def execute(self, sql, *args, **kwargs) -> "Cur":
+        self._c.execute(self._render(sql), *args, **kwargs)
         return self
 
-    def executemany(self, *args, **kwargs) -> "Cur":
-        self._c.executemany(*args, **kwargs)
+    def executemany(self, sql, *args, **kwargs) -> "Cur":
+        self._c.executemany(self._render(sql), *args, **kwargs)
         return self
 
     def fetchall(self):
@@ -1142,8 +1198,9 @@ class Cur:
         return getattr(self._c, name)
 
 
-def cursor(conn) -> Cur:
-    return Cur(conn.cursor())
+def cursor(conn, placeholder: str = "?") -> Cur:
+    """A Cur over `conn`. Pass `Dialect.ph` to get placeholder rendering."""
+    return Cur(conn.cursor(), placeholder)
 
 
 def as_dt(value) -> datetime:
@@ -1185,7 +1242,7 @@ def load_events(engine, row_iter, batch_size: int, created_at: str) -> tuple[int
     """Bulk-load events. COPY on Postgres, batched executemany on SQLite."""
     d = Dialect(engine)
     raw, conn = open_raw(engine)
-    cur = cursor(conn)
+    cur = cursor(conn, d.ph)
     tune_for_load(cur, d)
 
     # Indexes are dropped rather than kept: rebuilding them from scratch on the
@@ -1202,13 +1259,30 @@ def load_events(engine, row_iter, batch_size: int, created_at: str) -> tuple[int
                 el = time.perf_counter() - t0
                 print(f"    copied {n:>12,} events  ({n / el:>9,.0f} ev/s)", flush=True)
 
-            stream = _CopyStream(row_iter, created_at, on_progress=progress)
-            cur.copy_expert(
+            copy_sql = (
                 f"COPY vehicle_events ({', '.join(EVENT_COLUMNS)}) "
-                "FROM STDIN WITH (FORMAT csv)",
-                stream,
+                "FROM STDIN WITH (FORMAT csv)"
             )
-            total = stream.count
+            # One COPY per chunk rather than one COPY for the whole run.
+            #
+            # A single 40M-row COPY is a single transaction, so its WAL cannot
+            # be recycled until it commits — it accumulated ~900MB against a
+            # 1GB max_wal_size and the backend was killed mid-load. Chunking
+            # bounds WAL growth, lets checkpoints recycle between chunks, and
+            # bounds crash-recovery time. It costs nothing in throughput: COPY
+            # start-up is negligible next to a few million rows.
+            shared = iter(row_iter)
+            while True:
+                stream = _CopyStream(
+                    shared, created_at,
+                    on_progress=progress,
+                    max_rows=COPY_CHUNK_ROWS,
+                    start_count=total,
+                )
+                cur.copy_expert(copy_sql, stream)
+                total = stream.count
+                if stream.source_exhausted:
+                    break
         else:
             batch: list[tuple] = []
             append = batch.append
@@ -1238,7 +1312,7 @@ def load_events(engine, row_iter, batch_size: int, created_at: str) -> tuple[int
 def create_indexes(engine) -> list[tuple[str, float]]:
     d = Dialect(engine)
     raw, conn = open_raw(engine)
-    cur = cursor(conn)
+    cur = cursor(conn, d.ph)
     tune_for_load(cur, d)
     if not d.pg:
         # Index builds sort the whole table. temp_store=MEMORY would try to hold
@@ -1259,7 +1333,7 @@ def create_indexes(engine) -> list[tuple[str, float]]:
 def upsert_cameras(engine, cameras: list[dict], deactivate_others: bool) -> None:
     d = Dialect(engine)
     raw, conn = open_raw(engine)
-    cur = cursor(conn)
+    cur = cursor(conn, d.ph)
     now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(sep=" ")
     rows = [
         (c["camera_id"], c["name"], c["location"], c["latitude"], c["longitude"],
@@ -1292,7 +1366,7 @@ def upsert_cameras(engine, cameras: list[dict], deactivate_others: bool) -> None
 def reset_tables(engine, reset_alerts: bool) -> None:
     d = Dialect(engine)
     raw, conn = open_raw(engine)
-    cur = cursor(conn)
+    cur = cursor(conn, d.ph)
     tune_for_load(cur, d)
     tables = ["vehicle_events", "road_usage", "camera_hourly",
               "camera_totals", "dataset_kpi"]
@@ -1314,7 +1388,7 @@ def reset_tables(engine, reset_alerts: bool) -> None:
 def seed_blacklist(engine) -> None:
     d = Dialect(engine)
     raw, conn = open_raw(engine)
-    cur = cursor(conn)
+    cur = cursor(conn, d.ph)
     now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(sep=" ")
     cur.executemany(
         d.upsert("blacklist", ["plate", "reason", "added_at"], conflict="plate"),
@@ -1337,7 +1411,7 @@ def backfill_poi_alerts(engine, per_plate_cap: int = 400) -> int:
     demo only needs a populated, believable feed.
     """
     raw, conn = open_raw(engine)
-    cur = cursor(conn)
+    cur = cursor(conn, d.ph)
     inserted = 0
     now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(sep=" ")
     cur.execute("BEGIN")
@@ -1379,7 +1453,7 @@ def build_aggregates(engine, net: CameraNet) -> dict:
     Python is the few thousand already-reduced rows.
     """
     raw, conn = open_raw(engine)
-    cur = cursor(conn)
+    cur = cursor(conn, d.ph)
     tune_for_load(cur, d)
     if not d.pg:
         cur.execute("PRAGMA temp_store=FILE")
@@ -1553,7 +1627,7 @@ def percentile(sorted_vals: list[float], p: float) -> float:
 def verify(engine, net: CameraNet, agg: dict, sample_plates: list[str]) -> None:
     d = Dialect(engine)
     raw, conn = open_raw(engine)
-    cur = cursor(conn)
+    cur = cursor(conn, d.ph)
     if not d.pg:
         cur.execute("PRAGMA cache_size=-200000")
     bar = lambda v, mx, w=52: "#" * max(0, int(round(v / mx * w))) if mx else ""
@@ -1720,7 +1794,7 @@ DEMO_QUERIES = (
 def time_demo_queries(engine, plate: str, camera_id: str) -> None:
     d = Dialect(engine)
     raw, conn = open_raw(engine)
-    cur = cursor(conn)
+    cur = cursor(conn, d.ph)
     if not d.pg:
         cur.execute("PRAGMA cache_size=-200000")
     now = datetime.now(timezone.utc).replace(tzinfo=None)
